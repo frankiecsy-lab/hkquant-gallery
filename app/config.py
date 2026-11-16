@@ -52,6 +52,12 @@ THUMB_MAX_SIDE = int(os.environ.get("GALLERY_THUMB_MAX_SIDE", "640"))
 THUMB_QUALITY = int(os.environ.get("GALLERY_THUMB_QUALITY", "80"))
 THUMB_DIR = DATA_DIR / "thumbs"
 
+# 中图（/mid，灯箱放大图专用）：1600px 长边远小于原图，加载快数倍；
+# 原图仅经 /media 用于单张下载与 ZIP 打包。删除照片时两层缓存同步清除。
+MID_MAX_SIDE = int(os.environ.get("GALLERY_MID_MAX_SIDE", "1600"))
+MID_QUALITY = int(os.environ.get("GALLERY_MID_QUALITY", "85"))
+MID_DIR = DATA_DIR / "mids"
+
 # 人脸检索（buffalo_sc：det_500m.onnx＋w600k_mbf.onnx，compose 只读挂载 /models）。
 # 1.6G RAM 约束：模型惰性加载＋闲置自动卸载；后台索引按张节流；模型目录缺失时接口 503。
 FACES_MODEL_DIR = Path(os.environ.get("GALLERY_FACES_DIR", "/models")).resolve()
@@ -64,6 +70,12 @@ FACES_INDEX_INTERVAL = float(os.environ.get("GALLERY_FACES_INDEX_INTERVAL", "1.5
 FACES_IDLE_UNLOAD_SECONDS = float(os.environ.get("GALLERY_FACES_IDLE_UNLOAD", "300"))
 # 自拍上传体积上限（字节）。
 FACES_MAX_UPLOAD = int(os.environ.get("GALLERY_FACES_MAX_UPLOAD", str(8 * 1024 * 1024)))
+
+STATS_DB = DATA_DIR / "stats.json"  # 訪問統計（按日匯總＋最近事件；管理頁可重置）
+
+# 批量下載（ZIP 流式打包）：單次檔數／總量上限；開放與否為全站設置（默認關閉）
+DOWNLOAD_MAX_FILES = int(os.environ.get("GALLERY_DOWNLOAD_MAX_FILES", "500"))
+DOWNLOAD_MAX_BYTES = int(os.environ.get("GALLERY_DOWNLOAD_MAX_BYTES", str(2 * 1024 ** 3)))
 
 # “在线人数”按最后活动于此窗口内（秒）的访问者去重统计。
 ONLINE_WINDOW_SECONDS = 180

@@ -86,14 +86,18 @@ def _mtime_iso(path: Path) -> str:
     ).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def _capture_time(path: Path) -> str | None:
-    """读取 EXIF DateTimeOriginal（无时区信息，按字面值输出 ISO 格式）。"""
+def _image_meta(path: Path) -> tuple[str | None, int | None, int | None]:
+    """一次打开读取 EXIF DateTimeOriginal 与像素尺寸（供灯箱显示原始分辨率）。
+
+    尺寸仅读文件头（im.size），不解码像素；无时区的 EXIF 时间按字面值输出 ISO 格式。
+    """
     if not _pillow_ok():
-        return None
+        return None, None, None
     try:
         from PIL import Image
 
         with Image.open(path) as im:
+            w, h = int(im.size[0]), int(im.size[1])
             exif = im.getexif()
             raw = None
             try:
@@ -103,15 +107,16 @@ def _capture_time(path: Path) -> str | None:
                 raw = None
             raw = raw or exif.get(306)  # 顶层 DateTime
             if not raw:
-                return None
+                return None, w, h
             text = str(raw).strip()[:19]
             # EXIF 形如 "2026:11:16 14:30:00"
             if len(text) >= 16 and text[4] == ":" and text[7] == ":":
                 text = text[:4] + "-" + text[5:7] + "-" + text[8:]
-                return text.replace(" ", "T", 1)
+                return text.replace(" ", "T", 1), w, h
+            return None, w, h
     except Exception:
         pass
-    return None
+    return None, None, None
 
 
 def _meta_load_locked() -> dict:
@@ -151,30 +156,32 @@ def _image_entry(root: Path, path: Path) -> dict:
     mtime_iso = datetime.fromtimestamp(
         stat.st_mtime, tz=timezone.utc
     ).strftime("%Y-%m-%dT%H:%M:%S")
-    if is_video:
-        captured = mtime_iso  # 视频无 EXIF 解析，拍摄时间取 mtime
-    else:
-        captured = None
-        fingerprint = f"{stat.st_size}|{int(stat.st_mtime)}"
-        with _meta_lock:
-            meta = _meta_load_locked()
-            cached = meta.get(key)
-            if isinstance(cached, dict) and cached.get("k") == fingerprint:
-                captured = cached.get("t") or None
-            else:
-                captured = _capture_time(path) or mtime_iso
-                meta[key] = {"k": fingerprint, "t": captured}
-        if captured is None:
-            captured = mtime_iso
-    return {
+    entry = {
         "path": rel,
         "key": key,
         "name": path.name,
         "size": stat.st_size,
         "mtime": mtime_iso,
-        "captured": captured,
+        "captured": None,
         "kind": "video" if is_video else "image",
     }
+    if is_video:
+        entry["captured"] = mtime_iso  # 视频无 EXIF 解析，拍摄时间取 mtime
+        return entry
+    # v2 指纹：加入尺寸字段（旧缓存整体重读一次，代价仅一次表头解析）
+    fingerprint = f"{stat.st_size}|{int(stat.st_mtime)}|v2"
+    with _meta_lock:
+        meta = _meta_load_locked()
+        cached = meta.get(key)
+        if isinstance(cached, dict) and cached.get("k") == fingerprint:
+            entry["captured"] = cached.get("t") or mtime_iso
+            entry["w"], entry["h"] = cached.get("w"), cached.get("h")
+        else:
+            captured, w, h = _image_meta(path)
+            entry["captured"] = captured or mtime_iso
+            entry["w"], entry["h"] = w, h
+            meta[key] = {"k": fingerprint, "t": entry["captured"], "w": w, "h": h}
+    return entry
 
 
 def scan(root: Path) -> tuple[list[dict], bool]:

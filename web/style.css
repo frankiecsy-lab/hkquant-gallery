@@ -457,19 +457,35 @@ html, body {
   -webkit-user-drag: none;
 }
 
+/* 媒體層：翻頁圓鍵錨定媒體邊緣（不是螢幕邊緣），圖片與視頻統一顯示 */
+.lb-media {
+  position: relative;
+  display: flex;
+  max-width: 94vw;
+  max-height: 82vh;
+}
+
 .lb-caption {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   max-width: 94vw;
   font-size: 0.88rem;
   color: var(--text);
 }
 
 .lb-name {
+  max-width: 92vw;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* 原圖／視頻分辨率（載入後由 naturalWidth／videoWidth 填入） */
+.lb-res {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .lb-index {
@@ -507,8 +523,9 @@ a.lb-btn {
   font-size: 1.15rem;
 }
 .lb-download { top: 14px; right: 66px; }
-.lb-prev { left: 10px; top: 50%; transform: translateY(-50%); }
-.lb-next { right: 10px; top: 50%; transform: translateY(-50%); }
+/* 翻頁圓鍵：疊在媒體上貼左右緣（.lb-media 錨定），加大版易撾（用戶要求） */
+.lb-prev { left: 10px; top: 50%; transform: translateY(-50%); width: 66px; height: 66px; font-size: 2.2rem; }
+.lb-next { right: 10px; top: 50%; transform: translateY(-50%); width: 66px; height: 66px; font-size: 2.2rem; }
 
 /* ---------- 管理頁 ---------- */
 .panel {
@@ -723,15 +740,97 @@ input:focus {
   padding: 7px 22px;
 }
 
+/* 頁腳按鈕行：「下載」（全站開放空開時先顯示）＋「管理」 */
+.foot-btns {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+}
+.foot-btns .foot-admin { margin-top: 10px; }
+
+.foot-dl {
+  flex: none;
+  margin-top: 10px;
+  padding: 7px 22px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.foot-dl:hover { background: rgba(0, 230, 168, 0.18); }
+
+/* 管理頁 Tab 分類列 */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.tab-btn {
+  padding: 7px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.tab-btn:hover { color: var(--accent); }
+.tab-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* 統計面板明細行 */
+.stats-rows {
+  margin: 0 0 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.stats-rows p { margin: 0; }
+
+/* 批量下載選擇模式：媒體右上角勾選圈（錨定 .card-media，唔會撞 figcaption／隱藏徽標） */
+.card-dl {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  background: rgba(5, 8, 12, 0.55);
+  color: transparent;
+  font-size: 0.85rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.card-dl.on { background: var(--accent); color: #06231a; }
+
 /* ---------- 手機（≥360px 可用） ---------- */
 @media (max-width: 520px) {
   .topbar { padding: 10px 12px; }
   .topbar h1 { font-size: 1.08rem; }
   .page { padding: 12px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-  .lb-prev { left: 4px; }
-  .lb-next { right: 4px; }
   .lb-btn { width: 40px; height: 40px; }
+  .lb-prev { left: 6px; width: 56px; height: 56px; font-size: 1.9rem; }
+  .lb-next { right: 6px; width: 56px; height: 56px; font-size: 1.9rem; }
   /* iOS 聚焦输入框时字号小于 16px 会自动放大页面 */
   input { font-size: 16px; }
   .btn { padding: 11px 18px; }

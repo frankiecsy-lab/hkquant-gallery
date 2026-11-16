@@ -242,6 +242,34 @@ class Store:
             self._settings["face_idle_minutes"] = minutes
             self._save(self._settings_file, self._settings)
 
+    # ---------- 人臉定時索引（背景自動增量；默認關閉） ----------
+
+    def get_face_auto_index(self) -> tuple[bool, int]:
+        """回傳 (啟用與否, 間隔分鐘)；間夾鉗在 5–1440。"""
+        with self._lock:
+            on = bool(self._settings.get("face_auto_index", False))
+            mins = self._settings.get("face_auto_index_minutes", 10)
+            if not isinstance(mins, int) or isinstance(mins, bool):
+                mins = 10
+            return on, min(1440, max(5, mins))
+
+    def set_face_auto_index(self, enabled: bool, minutes: int) -> None:
+        with self._lock:
+            self._settings["face_auto_index"] = bool(enabled)
+            self._settings["face_auto_index_minutes"] = int(minutes)
+            self._save(self._settings_file, self._settings)
+
+    # ---------- 批量下載（全站開關；默認關閉，管理頁可開放） ----------
+
+    def get_downloads_enabled(self) -> bool:
+        with self._lock:
+            return bool(self._settings.get("downloads_enabled", False))
+
+    def set_downloads_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self._settings["downloads_enabled"] = bool(enabled)
+            self._save(self._settings_file, self._settings)
+
     # ---------- 密码 ----------
 
     def verify_password(self, password: str) -> bool:

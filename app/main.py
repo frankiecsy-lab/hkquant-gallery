@@ -8,24 +8,44 @@
 路由与 JSON 约定见 .SCRATCH/gallery_api_contract.md（前后端契约）。
 """
 import hashlib
+import json
 import os
 import re
 import threading
 import time
+import zipfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qs
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from zipstream import ZipStream
 from pydantic import BaseModel, Field
 
 from starlette.concurrency import run_in_threadpool
 
-from . import config, faces, scanner
+from . import config, faces, scanner, statslog, vthumb
 from .store import Store
 
 app = FastAPI(title=config.SITE_TITLE, docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def cache_policy(request: Request, call_next):
+    """缓存策略：页面/脚本每次向服务器确认（配合 FileResponse 的 ETag→304），
+    图片视频长缓存一年（前端 URL 带 ?v=指纹，替换档案即换 URL）。"""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith(("/thumb/", "/mid/", "/media/")) and response.status_code == 200:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    else:
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 store = Store(config.DATA_DIR, config.INITIAL_ADMIN_PASSWORD)
+stats_log = statslog.StatsLog(config.STATS_DB)  # 訪問統計（同訪客 5 分鐘去重）
 
 # 管理頁曾設置的人臉模型闲置卸载分钟数：启动时套回（-1＝未设置，用环境变量默认）。
 _face_idle = store.get_face_idle_minutes()
@@ -137,6 +157,10 @@ class FoldersBody(BaseModel):
 
 class LangBody(BaseModel):
     lang: str = Field(min_length=2, max_length=8)  # "zh"|"en"
+
+
+class DownloadsBody(BaseModel):
+    enabled: bool
 
 
 class HideBody(BaseModel):
@@ -261,6 +285,8 @@ def healthz():
 @app.get("/api/gallery")
 def gallery(request: Request):
     require_view(request)
+    # 訪問統計：首頁／管理／設置三頁嘅頁腳都會打呢個端點，一次記錄覆蓋三頁拜訪
+    stats_log.record(request.headers.get("user-agent", ""), _visitor_id(request))
     is_admin = store.check_session(request.cookies.get(config.COOKIE_NAME))
     hidden = store.get_hidden()
     rel = store.get_root()
@@ -313,6 +339,7 @@ def gallery(request: Request):
         "is_admin": is_admin,
         "display": display,
         "sort": prefs["sort"],
+        "downloads": store.get_downloads_enabled(),
         "stats": {
             "total": visible_total,
             "last_updated": last_updated,
@@ -335,10 +362,50 @@ def media(rel_path: str, request: Request):
     return FileResponse(path)
 
 
-# ---------- 缩略图（磁盘缓存，Pillow 生成） ----------
+# ---------- 缩略图与中图（磁盘缓存，Pillow 生成） ----------
 
-def _make_thumb(path: Path, out: Path) -> bool:
-    """生成缩略图 JPEG；Pillow 缺失或解码失败返回 False（调用方回退原图）。"""
+def _media_cache_name(kind: str, rel_path: str, stat, side: int, quality: int) -> str:
+    """缓存文件名 = 相对路径哈希 + 内容指纹。
+
+    带路径哈希前缀令删除照片时能反查并同步清除其大小图缓存；
+    大小或 mtime 变化则自动换代（旧文件成为孤儿，随 delete_all 清理）。
+    """
+    relh = hashlib.sha1(rel_path.lower().encode()).hexdigest()[:16]
+    stamp = hashlib.sha1(
+        f"{kind}|{stat.st_size}|{int(stat.st_mtime)}|{side}|{quality}".encode()
+    ).hexdigest()
+    return f"{relh}-{stamp}.jpg"
+
+
+def _purge_media_caches(rel_path: str) -> None:
+    """删除照片时同步清除其缩略图与中图缓存（大小图一起删）。"""
+    relh = hashlib.sha1(rel_path.lower().encode()).hexdigest()[:16]
+    for d in (config.THUMB_DIR, config.MID_DIR):
+        try:
+            for f in d.glob(f"{relh}-*.jpg"):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+        except OSError:
+            pass
+
+
+def _purge_all_media_caches() -> None:
+    """delete_all 后清空两层图像缓存目录。"""
+    for d in (config.THUMB_DIR, config.MID_DIR):
+        try:
+            for f in d.glob("*.jpg"):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+        except OSError:
+            pass
+
+
+def _make_thumb(path: Path, out: Path, max_side: int, quality: int) -> bool:
+    """生成缩略图/中图 JPEG；Pillow 缺失或解码失败返回 False（调用方回退原图）。"""
     if not scanner._pillow_ok():
         return False
     try:
@@ -347,16 +414,16 @@ def _make_thumb(path: Path, out: Path) -> bool:
         with Image.open(path) as im:
             try:
                 # JPEG 可先降采样解码，控制 20MP+ 相片的峰值内存
-                im.draft("RGB", (config.THUMB_MAX_SIDE * 2, config.THUMB_MAX_SIDE * 2))
+                im.draft("RGB", (max_side * 2, max_side * 2))
             except ValueError:
                 pass
             im = ImageOps.exif_transpose(im)  # 按 EXIF 方向摆正
-            im.thumbnail((config.THUMB_MAX_SIDE, config.THUMB_MAX_SIDE))
+            im.thumbnail((max_side, max_side))
             if im.mode not in ("RGB", "L"):
                 im = im.convert("RGB")
-            config.THUMB_DIR.mkdir(parents=True, exist_ok=True)
+            out.parent.mkdir(parents=True, exist_ok=True)
             tmp = out.with_name(f"{out.name}.{threading.get_ident()}.tmp")
-            im.save(tmp, "JPEG", quality=config.THUMB_QUALITY, optimize=True)
+            im.save(tmp, "JPEG", quality=quality, optimize=True)
             os.replace(tmp, out)
         return True
     except Exception:
@@ -367,16 +434,42 @@ def _make_thumb(path: Path, out: Path) -> bool:
 def thumb(rel_path: str, request: Request):
     require_view(request)
     path = resolve_media(rel_path)
-    if path.suffix.lower() in scanner.VIDEO_EXTS:
-        raise HTTPException(status_code=404, detail="視頻無縮略圖")  # 前端用占位瓦片
+    is_video = path.suffix.lower() in scanner.VIDEO_EXTS
     _touch_presence(request)
     stat = path.stat()
-    stamp = hashlib.sha1(
-        f"{stat.st_size}|{int(stat.st_mtime)}|{config.THUMB_MAX_SIDE}|{config.THUMB_QUALITY}".encode()
-    ).hexdigest()
-    out = config.THUMB_DIR / f"{stamp}.jpg"
-    if not out.is_file() and not _make_thumb(path, out):
+    out = config.THUMB_DIR / _media_cache_name(
+        "v" if is_video else "i", rel_path, stat,
+        config.THUMB_MAX_SIDE, config.THUMB_QUALITY)
+    if is_video:
+        # 視頻：ffmpeg 抽第一格（POC 0.32 秒／73MB）；失敗回 404，前端保留 ▶ 瓦片
+        if not out.is_file() and not vthumb.make(path, out, config.THUMB_MAX_SIDE,
+                                                 config.THUMB_QUALITY):
+            raise HTTPException(status_code=404, detail="視頻無縮略圖")
+        return FileResponse(out, media_type="image/jpeg")
+    if not out.is_file() and not _make_thumb(path, out, config.THUMB_MAX_SIDE,
+                                             config.THUMB_QUALITY):
         return FileResponse(path)  # 回退原图：旧浏览器缓存/无 Pillow 场景仍可用
+    return FileResponse(out, media_type="image/jpeg")
+
+
+@app.get("/mid/{rel_path:path}")
+def mid(rel_path: str, request: Request):
+    """灯箱放大图：1600px 中图（原图只经 /media 用于下载／ZIP 打包）。
+
+    前端先显示已缓存缩略图占位，本接口就绪后才换上，达到秒开效果；
+    视频无中图（回 404），灯箱继续直接播放原视频。
+    """
+    require_view(request)
+    path = resolve_media(rel_path)
+    if path.suffix.lower() in scanner.VIDEO_EXTS:
+        raise HTTPException(status_code=404, detail="視頻無中圖")
+    _touch_presence(request)
+    stat = path.stat()
+    out = config.MID_DIR / _media_cache_name(
+        "m", rel_path, stat, config.MID_MAX_SIDE, config.MID_QUALITY)
+    if not out.is_file() and not _make_thumb(path, out, config.MID_MAX_SIDE,
+                                             config.MID_QUALITY):
+        return FileResponse(path)  # 回退原图（无 Pillow 场景仍可用）
     return FileResponse(out, media_type="image/jpeg")
 
 
@@ -432,6 +525,7 @@ def get_settings():
             "display": store.get_display(),
             "sort": store.get_sort(),
             "lang": store.get_lang(),
+            "downloads": store.get_downloads_enabled(),
             "all_folders": _all_folder_names(),
             "visible_folders": store.get_visible_folders()}
 
@@ -504,6 +598,13 @@ def set_lang_ep(body: LangBody):
     return {"ok": True, "lang": lang}
 
 
+@app.post("/api/settings/downloads", dependencies=[Depends(require_login)])
+def set_downloads_ep(body: DownloadsBody):
+    """批量下載全站開關（默認關閉）；開放後訪客可勾選媒體打包 ZIP 下載。"""
+    store.set_downloads_enabled(body.enabled)
+    return {"ok": True, "downloads": body.enabled}
+
+
 # ---------- 照片管理（隐藏／删除；key = 相对 FTP 根的 posix 路径） ----------
 
 def _resolve_ftp_key(key: str) -> Path:
@@ -549,6 +650,14 @@ def photo_delete(body: DeleteBody):
     store.forget_photo(key)
     scanner.purge_meta(key)
     scanner.invalidate_cache()
+    # 同步清除缩略图＋中图缓存（URL 用的是图库根相对路径，根≠FTP 根时两种都清）
+    _purge_media_caches(key)
+    try:
+        rel_root = target.relative_to(resolve_root(store.get_root())).as_posix()
+        if rel_root != key:
+            _purge_media_caches(rel_root)
+    except Exception:
+        pass
     _storage_reset_cache()
     return {"ok": True, "key": key}
 
@@ -583,6 +692,7 @@ def photo_delete_all(body: DeleteAllBody):
         store.replace_hidden(survivors)
     scanner.prune_meta()
     scanner.invalidate_cache()
+    _purge_all_media_caches()  # 一键删除后清空缩略图＋中图两层缓存
     _storage_reset_cache()
     return {"ok": True, "deleted": deleted}
 
@@ -679,6 +789,32 @@ def get_lang_ep(request: Request):
 
 # ---------- 人脸检索（自拍找人；模型缺失时 503 友好降级） ----------
 
+# 定時索引心跳：每 60 秒一拍，開關與間隔每拍重讀（管理頁即時生效）；單飛由 start_index 保證。
+_auto_index = {"next_run": 0.0}
+
+
+def _face_auto_index_loop() -> None:
+    while True:
+        time.sleep(60)
+        try:
+            on, mins = store.get_face_auto_index()
+            if not on or not faces.models_available():
+                continue
+            if faces.index_state()["running"] or time.monotonic() < _auto_index["next_run"]:
+                continue
+            entries, _visible = _face_scan_context()
+            if faces.pending_count(entries) <= 0:
+                _auto_index["next_run"] = time.monotonic() + mins * 30  # 冇新檔：半個週期後重查
+                continue
+            faces.start_index(entries)
+            _auto_index["next_run"] = time.monotonic() + mins * 60
+        except Exception:  # noqa: BLE001  心跳线程绝不能因异常退出
+            pass
+
+
+threading.Thread(target=_face_auto_index_loop, daemon=True, name="face-auto-index").start()
+
+
 def _face_scan_context() -> tuple[list[dict], set[str]]:
     """返回 (全量图片索引条目, 可检索键集合)。
 
@@ -721,7 +857,37 @@ def face_status():
         "running": st["running"], "done": st["done"], "todo": st["todo"],
         "errors": st["errors"], "threshold": config.FACES_MATCH_THRESHOLD,
         "idle_unload_minutes": int(round(faces.get_idle_unload_seconds() / 60)),
+        "auto_index": dict(zip(("enabled", "minutes"), store.get_face_auto_index())),
     }
+
+
+class FaceAutoBody(BaseModel):
+    enabled: bool
+    minutes: int
+
+
+@app.post("/api/face/auto", dependencies=[Depends(require_login)])
+def face_auto(body: FaceAutoBody):
+    """定時自動索引：開關＋間隔分鐘（5–1440）；保存後即時重讀生效。"""
+    if not 5 <= body.minutes <= 1440:
+        raise HTTPException(status_code=400, detail="定時索引間隔須為 5–1440 分鐘")
+    store.set_face_auto_index(body.enabled, body.minutes)
+    if body.enabled:
+        _auto_index["next_run"] = 0.0  # 開啟／改間隔後下一拍即檢待辦，唔使等完整週期
+    return {"ok": True, "enabled": body.enabled, "minutes": body.minutes}
+
+
+# ---------- 訪問統計（管理頁） ----------
+
+@app.get("/api/stats", dependencies=[Depends(require_login)])
+def stats_get():
+    return stats_log.snapshot()
+
+
+@app.post("/api/stats/reset", dependencies=[Depends(require_login)])
+def stats_reset():
+    stats_log.reset()
+    return {"ok": True}
 
 
 class FaceUnloadBody(BaseModel):
@@ -767,6 +933,9 @@ async def face_search(request: Request):
         raise HTTPException(status_code=503, detail="人脸检索未启用") from None
     except Exception:  # noqa: BLE001  非法图像数据统一提示
         raise HTTPException(status_code=400, detail="照片无法解析") from None
+    is_admin = store.check_session(request.cookies.get(config.COOKIE_NAME))
+    print(f"[face] search bytes={len(data)} faces={len(embeddings)} admin={is_admin}",
+          flush=True)  # 進程日誌：核對「未檢測到人臉」係邊張相邊次請求
     if not embeddings:
         raise HTTPException(status_code=400, detail="未检测到人脸")
     matches = await run_in_threadpool(
@@ -845,7 +1014,30 @@ def set_password(body: PasswordBody):
 # ---------- 前端页面 ----------
 
 @app.get("/")
-def index():
+def index(request: Request):
+    """首頁。啟用查看密碼時支援 ?password=4–12位數字 直入：
+    驗證通過即寫入查看會話 Cookie（30 天）並 302 跳返乾淨 URL，方便書籤／手機快捷方式；
+    密碼錯／鎖定時不洩露原因，照常渲染由閘卡提示。"""
+    code = request.query_params.get("password") or request.query_params.get("pwd") or ""
+    already = store.check_view_session(request.cookies.get(config.VIEW_COOKIE_NAME))
+    if code and store.get_view_enabled() and not already:
+        if not _CODE_RE.match(code):
+            pass  # 格式不合（例如書籤殘留雜字）：視同未帶密碼
+        elif store.view_locked_until() > time.time() or not store.verify_view_password(code):
+            store.record_view_failure()
+        else:
+            store.clear_view_failures()
+            response = RedirectResponse("/", status_code=302)
+            response.set_cookie(
+                key=config.VIEW_COOKIE_NAME,
+                value=store.create_view_session(),
+                max_age=config.VIEW_SESSION_TTL_SECONDS,
+                httponly=True,
+                secure=config.COOKIE_SECURE,
+                samesite="lax",
+                path="/",
+            )
+            return response
     return FileResponse(config.WEB_DIR / "index.html")
 
 
@@ -896,3 +1088,106 @@ def footer_js():
 def i18n_js():
     """全站雙語文案組件（繁體中文／英文，語言由設置頁全局配置）。"""
     return _serve_script("i18n.js")
+
+
+# ---------- 批量下載（勾選媒體打包 ZIP；全站開關默認關閉） ----------
+
+_zip_sem = threading.BoundedSemaphore(2)  # 限制併發打包任務，保護共享伺服器 IO
+
+
+def _parse_download_paths(body: bytes, content_type: str) -> list[str]:
+    """解析勾選清單：JSON 原體 {"paths":[...]} 或表單（x-www-form-urlencoded）paths=JSON 字串。
+
+    表單分支供前端 form POST 觸發瀏覽器原生下載，Starlette 內建 urlencoded 解析，
+    免引入 python-multipart。
+    """
+    raw = None
+    try:
+        if content_type.startswith("application/json"):
+            payload = json.loads(body or b"{}")
+            raw = payload.get("paths") if isinstance(payload, dict) else None
+        else:
+            fields = parse_qs(body.decode("utf-8", "replace")).get("paths")
+            raw = json.loads(fields[0]) if fields else None
+    except (ValueError, UnicodeDecodeError):
+        raw = None
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(status_code=400, detail="請選擇要下載的檔案")
+    return [str(p) for p in raw]
+
+
+@app.post("/api/download/zip")
+async def download_zip(request: Request):
+    """批量下載：paths＝對圖庫根的相對路徑清單；流式 ZIP_STORED（媒體已自帶壓縮）。
+
+    無記憶體峰值（逐檔分塊輸出，1.6G 伺服器友善）；超出可見範圍（隱藏／不可見資料夾／
+    非媒體白名單）的條目靜默剔除，ZIP 內容恆等於請求者可見的集合。
+    """
+    require_view(request)
+    if not store.get_downloads_enabled():
+        raise HTTPException(status_code=403, detail="批量下載未開放")
+    body = await request.body()
+    if not body or len(body) > 512 * 1024:
+        raise HTTPException(status_code=400, detail="請選擇要下載的檔案")
+    paths = _parse_download_paths(body, request.headers.get("content-type", ""))
+    if len(paths) > config.DOWNLOAD_MAX_FILES:
+        raise HTTPException(status_code=400,
+                            detail=f"所選項目過多（上限 {config.DOWNLOAD_MAX_FILES} 個）")
+    is_admin = store.check_session(request.cookies.get(config.COOKIE_NAME))
+    hidden = store.get_hidden()
+    visible_folders = store.get_visible_folders()
+    try:
+        gallery_root = resolve_root(store.get_root())
+    except HTTPException:
+        gallery_root = config.FTP_ROOT
+    seen: set[str] = set()
+    files: list[tuple[Path, str]] = []
+    total = 0
+    for rel in paths:
+        try:
+            path = resolve_media(rel)  # 白名單＋防穿越＋隱藏名封鎖（同 /media）
+        except HTTPException:
+            continue
+        try:
+            ftp_key = path.relative_to(config.FTP_ROOT).as_posix()
+            folder_rel = path.parent.relative_to(gallery_root).as_posix()
+        except ValueError:
+            continue
+        folder_name = _ROOT_DISPLAY if folder_rel == "." else folder_rel
+        if ftp_key in hidden and not is_admin:
+            continue
+        if visible_folders is not None and folder_name not in visible_folders:
+            continue
+        parts = [p for p in (rel or "").replace("\\", "/").lstrip("/").split("/")
+                 if p and p != "."]
+        arc = "/".join(parts)
+        if not arc or arc in seen:
+            continue
+        total += path.stat().st_size
+        if total > config.DOWNLOAD_MAX_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"所選內容過大（上限 {max(1, round(config.DOWNLOAD_MAX_BYTES / 1024 ** 3))} GB）")
+        seen.add(arc)
+        files.append((path, arc))
+    if not files:
+        raise HTTPException(status_code=400, detail="請選擇要下載的檔案")
+    if not _zip_sem.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="下載任務繁忙，請稍後再試")
+
+    def _stream():
+        try:
+            zs = ZipStream(sized=False)
+            for p, arcname in files:
+                zs.add_path(p, arcname=arcname, compress_type=zipfile.ZIP_STORED)
+            for chunk in zs:
+                yield chunk
+        finally:
+            _zip_sem.release()  # 客戶端斷線時 Starlette 收GeneratorExit 亦會走到這裡
+
+    fname = time.strftime("gallery-%Y%m%d-%H%M.zip")
+    return StreamingResponse(
+        _stream(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )

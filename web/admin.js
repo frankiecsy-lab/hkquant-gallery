@@ -43,6 +43,19 @@ const els = {
   faceIdle: document.getElementById("face-idle"),
   faceIdleSave: document.getElementById("face-idle-save"),
   faceMsg: document.getElementById("face-msg"),
+  dlState: document.getElementById("dl-state"),
+  dlToggle: document.getElementById("dl-toggle"),
+  dlMsg: document.getElementById("dl-msg"),
+  faceAutoForm: document.getElementById("face-auto-form"),
+  faceAutoMin: document.getElementById("face-auto-min"),
+  faceAutoToggle: document.getElementById("face-auto-toggle"),
+  faceAutoState: document.getElementById("face-auto-state"),
+  statsSummary: document.getElementById("stats-summary"),
+  statsDays: document.getElementById("stats-days"),
+  statsLabels: document.getElementById("stats-labels"),
+  statsLog: document.getElementById("stats-log"),
+  statsReset: document.getElementById("stats-reset"),
+  statsMsg: document.getElementById("stats-msg"),
   deleteAllBtn: document.getElementById("delete-all-btn"),
   deleteAllForm: document.getElementById("delete-all-form"),
   deleteAllPw: document.getElementById("delete-all-pw"),
@@ -96,7 +109,7 @@ function showLogin() {
   els.loginCard.hidden = false;
   els.loginPassword.value = "";
   clearMsg(els.loginMsg, els.rootMsg, els.titleMsg, els.storageMsg,
-    els.viewMsg, els.pwdMsg, els.faceMsg, els.deleteAllMsg, els.logoutMsg);
+    els.viewMsg, els.pwdMsg, els.faceMsg, els.dlMsg, els.statsMsg, els.deleteAllMsg, els.logoutMsg);
   els.deleteAllForm.hidden = true;
   els.loginPassword.focus();
 }
@@ -104,10 +117,27 @@ function showLogin() {
 function showPanels(settings) {
   els.loginCard.hidden = true;
   els.panels.hidden = false;
+  let savedTab = "general";
+  try { savedTab = sessionStorage.getItem("gallery.adminTab") || "general"; } catch (_) { /* 隱私模式容忍 */ }
+  showTab(TAB_NAMES.includes(savedTab) ? savedTab : "general");
   applySettings(settings);
   loadStorage();
   loadFaceStatus();
+  loadStats();
 }
+
+// ---------- Tab 分類（常規／人臉／下載與統計／危險；所選 tab 記憶於 sessionStorage） ----------
+
+const TAB_NAMES = ["general", "face", "dlstats", "danger"];
+const tabBtns = Array.from(document.querySelectorAll(".tab-btn"));
+
+function showTab(name) {
+  for (const b of tabBtns) b.classList.toggle("active", b.dataset.tab === name);
+  for (const p of document.querySelectorAll(".tab-pane")) p.hidden = p.id !== "tab-" + name;
+  try { sessionStorage.setItem("gallery.adminTab", name); } catch (_) { /* 隱私模式容忍 */ }
+}
+
+for (const b of tabBtns) b.addEventListener("click", () => showTab(b.dataset.tab));
 
 // 查看闸门当前状态（来自 GET／POST /api/settings、/api/settings/view）
 let viewEnabled = false;
@@ -127,6 +157,20 @@ function applySettings(settings) {
   if (settings && typeof settings.view_enabled === "boolean") {
     updateViewPanel(settings.view_enabled, settings.view_has_code);
   }
+  if (settings && typeof settings.downloads === "boolean") {
+    renderDlPanel(settings.downloads);
+  }
+}
+
+// 批量下載面板（全站開關；GET／POST /api/settings[.downloads] 同 /api/settings/downloads）
+let dlEnabled = false;
+
+function renderDlPanel(enabled) {
+  dlEnabled = Boolean(enabled);
+  if (lastSettings) lastSettings.downloads = dlEnabled;
+  els.dlState.textContent = I18N.t("admin.dlCurrent")
+    + I18N.t(dlEnabled ? "admin.dlOn" : "admin.dlOff");
+  els.dlToggle.textContent = I18N.t(dlEnabled ? "admin.dlDisable" : "admin.dlEnable");
 }
 
 function updateViewPanel(enabled, hasCode) {
@@ -309,6 +353,23 @@ els.viewToggle.addEventListener("click", () => {
   });
 });
 
+// ---------- 批量下載開關 ----------
+
+els.dlToggle.addEventListener("click", () => {
+  clearMsg(els.dlMsg);
+  withBusy(els.dlToggle, async () => {
+    const { status, data } = await postJson("/api/settings/downloads", { enabled: !dlEnabled });
+    if (status === 200 && data && data.ok) {
+      renderDlPanel(data.downloads);
+      setMsg(els.dlMsg, I18N.t("admin.dlSaved"), "ok");
+    } else if (status === 401) {
+      showLogin();
+    } else {
+      setMsg(els.dlMsg, detailOf(data, status), "err");
+    }
+  });
+});
+
 // ---------- ⑤ 修改密碼 ----------
 
 els.pwdForm.addEventListener("submit", (e) => {
@@ -386,6 +447,7 @@ let lastFace = null;        // 快取 GET /api/face/status，語言切換即時�
 let facePollTimer = null;
 
 function renderFaceStatus() {
+  renderFaceAuto(); // 定時索引設置與模型狀態無關，恒先渲染
   if (!lastFace) return;
   if (!lastFace.models) {
     els.faceStatus.textContent = I18N.t("admin.faceNoModels");
@@ -406,6 +468,122 @@ function renderFaceStatus() {
   if (lastFace.errors > 0) text += I18N.t("admin.faceErrors", { n: lastFace.errors });
   els.faceStatus.textContent = text;
 }
+
+// ---------- 人臉定時索引（開關＋間隔分鐘；POST /api/face/auto） ----------
+
+let faceAuto = { enabled: false, minutes: 10 };
+
+function renderFaceAuto() {
+  const auto = lastFace && lastFace.auto_index;
+  if (auto) faceAuto = { enabled: Boolean(auto.enabled), minutes: Number(auto.minutes) || 10 };
+  els.faceAutoState.textContent = faceAuto.enabled
+    ? I18N.t("admin.faceAutoOn", { n: faceAuto.minutes })
+    : I18N.t("admin.faceAutoOff");
+  els.faceAutoToggle.textContent = I18N.t(faceAuto.enabled ? "admin.faceAutoDisable" : "admin.faceAutoEnable");
+  if (document.activeElement !== els.faceAutoMin) {
+    els.faceAutoMin.value = String(faceAuto.minutes);
+  }
+}
+
+async function postFaceAuto(enabled, minutes) {
+  clearMsg(els.faceMsg);
+  const { status, data } = await postJson("/api/face/auto", { enabled, minutes });
+  if (status === 200 && data && data.ok) {
+    faceAuto = { enabled: data.enabled, minutes: data.minutes };
+    if (lastFace) lastFace.auto_index = { enabled: data.enabled, minutes: data.minutes };
+    renderFaceAuto();
+    setMsg(els.faceMsg, I18N.t("admin.faceAutoSaved"), "ok");
+  } else if (status === 401) {
+    showLogin();
+  } else {
+    setMsg(els.faceMsg, detailOf(data, status), "err");
+  }
+}
+
+els.faceAutoToggle.addEventListener("click", () => postFaceAuto(!faceAuto.enabled, faceAuto.minutes));
+
+els.faceAutoForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const mins = parseInt(els.faceAutoMin.value, 10);
+  if (!Number.isInteger(mins) || mins < 5 || mins > 1440) {
+    setMsg(els.faceMsg, I18N.t("admin.faceAutoBad"), "err");
+    return;
+  }
+  postFaceAuto(faceAuto.enabled, mins);
+});
+
+// ---------- 訪問統計（GET /api/stats；重置需二次確認） ----------
+
+let lastStats = null;
+
+function fillRows(host, rows) {
+  host.textContent = "";
+  if (!rows.length) {
+    const p = document.createElement("p");
+    p.textContent = I18N.t("admin.statsNone");
+    host.appendChild(p);
+    return;
+  }
+  for (const r of rows) {
+    const p = document.createElement("p");
+    p.textContent = r;
+    host.appendChild(p);
+  }
+}
+
+function renderStatsText() {
+  if (!lastStats) return;
+  els.statsSummary.textContent = I18N.t("admin.statsTotal", { n: lastStats.total })
+    + (lastStats.started
+      ? " · " + I18N.t("admin.statsStarted", { t: String(lastStats.started).replace("T", " ").slice(0, 16) })
+      : "");
+  fillRows(els.statsDays, (lastStats.days || []).slice().reverse().map((d) =>
+    d.date + " · " + I18N.t("admin.statsDay",
+      { n: d.total || 0, m: d.mobile || 0, p: d.tablet || 0, d: d.desktop || 0, b: d.bot || 0 })));
+  fillRows(els.statsLabels, Object.entries(lastStats.labels || {}).map(([k, v]) => k + " ×" + v));
+  fillRows(els.statsLog, (lastStats.log || []).map((r) => r.ts + " · " + r.label));
+}
+
+async function loadStats() {
+  const { status, data } = await api("/api/stats");
+  if (status === 200 && data) {
+    lastStats = data;
+    renderStatsText();
+  } else if (status === 401) {
+    showLogin();
+  }
+}
+
+let statsArmed = false;
+let statsArmTimer = 0;
+
+function disarmStats() {
+  statsArmed = false;
+  clearTimeout(statsArmTimer);
+  els.statsReset.textContent = I18N.t("admin.statsReset");
+}
+
+els.statsReset.addEventListener("click", () => {
+  if (!statsArmed) {
+    statsArmed = true;
+    els.statsReset.textContent = I18N.t("admin.statsResetConfirm");
+    statsArmTimer = setTimeout(disarmStats, 3000);
+    return;
+  }
+  disarmStats();
+  clearMsg(els.statsMsg);
+  withBusy(els.statsReset, async () => {
+    const { status, data } = await postJson("/api/stats/reset", {});
+    if (status === 200 && data && data.ok) {
+      setMsg(els.statsMsg, I18N.t("admin.statsResetted"), "ok");
+      await loadStats();
+    } else if (status === 401) {
+      showLogin();
+    } else {
+      setMsg(els.statsMsg, detailOf(data, status), "err");
+    }
+  });
+});
 
 async function loadFaceStatus() {
   try {
@@ -474,6 +652,7 @@ document.addEventListener("i18n:lang", () => {
   if (lastSettings) applySettings(lastSettings);
   if (lastStorage) renderStorageText();
   if (lastFace) renderFaceStatus();
+  if (lastStats) renderStatsText();
 });
 
 // ---------- 初始化：先取語言，再查 session 決定顯示登入卡或面板 ----------

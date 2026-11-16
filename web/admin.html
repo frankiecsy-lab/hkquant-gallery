@@ -29,8 +29,16 @@
       </form>
     </section>
 
-    <!-- 已登入：管理面板（主頁標題第一位） -->
+    <!-- 已登入：管理面板（Tab 分類：常規／人臉／下載與統計／危險） -->
     <div id="panels" hidden>
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab-btn active" data-tab="general" data-i18n="admin.tabGeneral">常規</button>
+        <button type="button" class="tab-btn" data-tab="face" data-i18n="admin.tabFace">人臉</button>
+        <button type="button" class="tab-btn" data-tab="dlstats" data-i18n="admin.tabDl">下載與統計</button>
+        <button type="button" class="tab-btn" data-tab="danger" data-i18n="admin.tabDanger">危險</button>
+      </div>
+
+      <div class="tab-pane" id="tab-general">
       <!-- ① 主頁標題 -->
       <section class="panel">
         <h2 data-i18n="admin.titlePanel">主頁標題</h2>
@@ -95,6 +103,9 @@
         </form>
       </section>
 
+      </div><!-- /tab-general -->
+
+      <div class="tab-pane" id="tab-face" hidden>
       <!-- ⑥ 人臉索引 -->
       <section class="panel">
         <h2 data-i18n="admin.facePanel">人臉索引</h2>
@@ -106,10 +117,47 @@
           <input type="number" id="face-idle" min="0" max="240" step="1" inputmode="numeric" autocomplete="off">
           <button type="submit" class="btn" id="face-idle-save" data-i18n="admin.faceUnloadSave">保存卸載時間</button>
         </form>
+        <form id="face-auto-form" novalidate>
+          <label for="face-auto-min" data-i18n="admin.faceAutoLabel">定時自動索引間隔（分鐘，5–1440）</label>
+          <input type="number" id="face-auto-min" min="5" max="1440" step="1" inputmode="numeric" autocomplete="off">
+          <div class="btn-row">
+            <button type="submit" class="btn" id="face-auto-save" data-i18n="admin.faceAutoSave">保存間隔</button>
+            <button type="button" class="btn" id="face-auto-toggle">—</button>
+          </div>
+        </form>
+        <p id="face-auto-state" class="hint">—</p>
         <p id="face-msg" class="msg" role="status"></p>
       </section>
+      </div><!-- /tab-face -->
 
-      <!-- ⑦ 危險區域 -->
+      <div class="tab-pane" id="tab-dlstats" hidden>
+      <!-- ⑦ 批量下載 -->
+      <section class="panel">
+        <h2 data-i18n="admin.dlPanel">批量下載</h2>
+        <p class="hint" data-i18n="admin.dlHint">開放後訪客可在主頁勾選相片／視頻打包 ZIP 下載（隱藏照片與不可見資料夾不會包含）。</p>
+        <p id="dl-state" class="hint">—</p>
+        <button type="button" class="btn btn-primary" id="dl-toggle">—</button>
+        <p id="dl-msg" class="msg" role="status"></p>
+      </section>
+
+      <!-- 訪問統計 -->
+      <section class="panel">
+        <h2 data-i18n="admin.statsPanel">訪問統計</h2>
+        <p class="hint" data-i18n="admin.statsHint">同一訪客以 5 分鐘窗口去重後計一次拜訪（頁腳自動刷新不會灌水）。</p>
+        <p id="stats-summary" class="hint">—</p>
+        <p class="hint" data-i18n="admin.statsDays">按日明細（最近 14 天）</p>
+        <div id="stats-days" class="stats-rows"></div>
+        <p class="hint" data-i18n="admin.statsDevices">設備／瀏覽器</p>
+        <div id="stats-labels" class="stats-rows"></div>
+        <p class="hint" data-i18n="admin.statsLogTitle">最近拜訪</p>
+        <div id="stats-log" class="stats-rows"></div>
+        <button type="button" class="btn btn-danger" id="stats-reset" data-i18n="admin.statsReset">重置統計</button>
+        <p id="stats-msg" class="msg" role="status"></p>
+      </section>
+      </div><!-- /tab-dlstats -->
+
+      <div class="tab-pane" id="tab-danger" hidden>
+      <!-- ⑧ 危險區域 -->
       <section class="panel">
         <h2 data-i18n="admin.dangerPanel">危險區域</h2>
         <p class="hint" data-i18n="admin.dangerHint">一鍵刪除當前圖庫資料夾內全部相片與視頻（含已隱藏；非媒體檔案保留）。此操作無法還原。</p>
@@ -122,13 +170,14 @@
         <p id="delete-all-msg" class="msg" role="status"></p>
       </section>
 
-      <!-- ⑧ 登出 -->
+      <!-- ⑨ 登出 -->
       <section class="panel">
         <h2 data-i18n="admin.logoutPanel">登出</h2>
         <p class="hint" data-i18n="admin.logoutHint">結束當前管理工作階段。</p>
         <button type="button" class="btn btn-danger" id="logout-btn" data-i18n="admin.logout">登出</button>
         <p id="logout-msg" class="msg" role="status"></p>
       </section>
+      </div><!-- /tab-danger -->
     </div>
   </main>
 

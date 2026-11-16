@@ -29,14 +29,26 @@ window.FooterKit = (function () {
   const adminLink = document.createElement("a");
   adminLink.className = "admin-link foot-admin";
   adminLink.href = "/admin"; adminLink.textContent = I18N.t("footer.admin");
+  // 批量下載入口：僅主頁註冊回調（FooterKit.onDownload）且全站開關開放時顯示
+  const dlBtn = document.createElement("button");
+  dlBtn.type = "button";
+  dlBtn.className = "foot-dl";
+  dlBtn.textContent = I18N.t("footer.download");
+  dlBtn.hidden = true;
   const sign = document.createElement("p");
   sign.className = "foot-sign";
   sign.textContent = "Frankie Cheung";
-  footer.append(statsLine, storageLine, foldersLine, sign, adminLink);
+  const btnRow = document.createElement("p");
+  btnRow.className = "foot-btns";
+  btnRow.append(dlBtn, adminLink);
+  footer.append(statsLine, storageLine, foldersLine, sign, btnRow);
   document.addEventListener("DOMContentLoaded", () => document.body.appendChild(footer));
   if (document.readyState !== "loading") document.body.appendChild(footer);
 
   let lastData = null; // 快取最近一次資料，語言切換時即時重渲染
+  let onDownload = null; // 主頁註冊的下載模式回調；其他頁面保持 null＝不顯示下載鍵
+
+  dlBtn.addEventListener("click", () => { if (onDownload) onDownload(); });
 
   function apply(data) {
     if (!data || !data.stats) { return; }
@@ -83,6 +95,8 @@ window.FooterKit = (function () {
     const year = (st.last_updated ? String(st.last_updated).slice(0, 4) : "")
       || String(new Date().getFullYear());
     sign.textContent = "Frankie Cheung · © " + year;
+
+    dlBtn.hidden = !(data.downloads && onDownload);
   }
 
   async function refresh() {
@@ -95,11 +109,20 @@ window.FooterKit = (function () {
   // 語言切換：管理按鈕與最近一次統計即時重渲染
   document.addEventListener("i18n:lang", () => {
     adminLink.textContent = I18N.t("footer.admin");
+    dlBtn.textContent = I18N.t("footer.download");
     if (lastData) apply(lastData);
   });
 
   refresh();
   setInterval(refresh, REFRESH_MS);
 
-  return { apply, refresh };
+  return {
+    apply,
+    refresh,
+    // 主頁註冊進入／退出下載選擇模式的回調；註冊時即時按最近資料決定按鍵可見性
+    setOnDownload(fn) {
+      onDownload = fn;
+      dlBtn.hidden = !(lastData && lastData.downloads);
+    },
+  };
 })();

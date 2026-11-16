@@ -22,7 +22,9 @@ from . import config
 
 DET_SIZE = 640
 STRIDES = (8, 16, 32)
-DET_THRESH = 0.5
+# 偵測置信度閾值：0.42（原 0.5）——手機自拍斜角／遠距離容易跌穿 0.5 而誤報「未檢測人臉」，
+# 誤檢測仍會由識別餘弦閾值（0.40）把關，降低漏檢對搜尋體驗的影響。
+DET_THRESH = 0.42
 NMS_IOU = 0.4
 MAX_FACES_PER_IMAGE = 20
 # ArcFace 标准 5 点参考坐标（112x112 模板）

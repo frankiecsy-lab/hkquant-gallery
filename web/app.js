@@ -15,6 +15,7 @@ const els = {
   lbImg: document.getElementById("lb-img"),
   lbVideo: document.getElementById("lb-video"),
   lbName: document.getElementById("lb-name"),
+  lbRes: document.getElementById("lb-res"),
   lbIndex: document.getElementById("lb-index"),
   lbClose: document.getElementById("lb-close"),
   lbDl: document.getElementById("lb-download"),
@@ -35,6 +36,14 @@ const els = {
   faceBanner: document.getElementById("face-banner"),
   faceBannerText: document.getElementById("face-banner-text"),
   faceReset: document.getElementById("face-reset"),
+  dlBanner: document.getElementById("dl-banner"),
+  dlInfo: document.getElementById("dl-info"),
+  dlAll: document.getElementById("dl-all"),
+  dlGo: document.getElementById("dl-go"),
+  dlExit: document.getElementById("dl-exit"),
+  dlForm: document.getElementById("dl-form"),
+  dlPaths: document.getElementById("dl-paths"),
+  dlFrame: document.getElementById("dl-frame"),
 };
 
 const PAGE_SIZE = 60;
@@ -49,19 +58,33 @@ let isAdmin = false;
 let display = { date: false, name: false, photos: true, videos: true };
 let sortCfg = { by: "captured", desc: true }; // 全局排序（設置頁配置，服務端下發）
 let stats = null;
+// 批量下載（全站開關由 /api/gallery.downloads 下發；選擇模式僅影響本瀏覽器）
+let downloadsEnabled = false;
+let dlMode = false;
+const dlSel = new Set(); // 已勾選的 path（跨頁保留）
 let current = -1;
+let lbToken = 0;        // 灯箱序号：过期的中图预载结果直接丢弃
 let facePaths = null;   // 人臉匹配的 path 集合（null＝無過濾）
 let faceSavedPage = 1;  // 過濾前的頁碼，返回全部時還原
 let faceBusy = false;
 let faceFileSel = null;
 let facePreviewUrl = "";
 
-// 將契約中的未 encode POSIX 路徑轉為 URL（逐段 encodeURIComponent）
-function mediaUrl(path) {
-  return "/media/" + String(path).split("/").map(encodeURIComponent).join("/");
+// 將契約中的未 encode POSIX 路徑轉為 URL（逐段 encodeURIComponent）；
+// 傳入 item 時附 ?v=檔案指紋（mtime+size）：圖片／視頻可長缓存一年，
+// 替換同名檔案即換 URL，瀏覽器永遠攞啱版本（頁面本身 no-cache 每次 revalidate）
+function verQs(item) {
+  if (!item || !item.mtime) return "";
+  return "?v=" + String(item.mtime).replace(/\D/g, "") + "." + (item.size || 0);
 }
-function thumbUrl(path) {
-  return "/thumb/" + String(path).split("/").map(encodeURIComponent).join("/");
+function mediaUrl(path, item) {
+  return "/media/" + String(path).split("/").map(encodeURIComponent).join("/") + verQs(item);
+}
+function thumbUrl(path, item) {
+  return "/thumb/" + String(path).split("/").map(encodeURIComponent).join("/") + verQs(item);
+}
+function midUrl(path, item) {
+  return "/mid/" + String(path).split("/").map(encodeURIComponent).join("/") + verQs(item);
 }
 
 // 統一 fetch：自帶 same-origin cookie，回傳 {status, data}，data 為解析後的 JSON（失敗則 null）
@@ -112,13 +135,15 @@ function pumpPosterQueue() {
   while (posterActive < POSTER_CONCURRENCY && posterQueue.length) {
     const job = posterQueue.shift();
     if (job.seq !== renderSeq || !document.contains(job.tile)) continue; // 已過期
+    const existing = job.tile.querySelector(".video-poster");
+    if (existing && existing.dataset.served === "1") continue; // 服務端海報已到，唔使抽
     posterActive++;
     capturePoster(job.item, (dataUrl) => {
       posterActive--;
       if (dataUrl) job.item.poster = dataUrl; // 快喺 item 上，lightbox 開片時重用
       if (dataUrl && job.seq === renderSeq && document.contains(job.tile)) {
         const img = job.tile.querySelector(".video-poster");
-        if (img) { img.src = dataUrl; img.hidden = false; }
+        if (img && img.dataset.served !== "1") { img.src = dataUrl; img.hidden = false; }
       }
       pumpPosterQueue();
     });
@@ -167,7 +192,7 @@ function capturePoster(item, done) {
       draw();
     }
   }, { once: true });
-  video.src = mediaUrl(item.path);
+  video.src = mediaUrl(item.path, item);
   video.load();
 }
 
@@ -225,6 +250,14 @@ function renderCard(img, flatIndex) {
     poster.className = "video-poster";
     poster.alt = "";
     poster.hidden = true;
+    // 服務端 ffmpeg 第一格：載入成功即用（瀏覽器端抽幀唔會再覆蓋）；
+    // 404／失敗則保留 ▶ 瓦片，由瀏覽器端抽幀補位
+    poster.addEventListener("load", () => {
+      poster.dataset.served = "1";
+      poster.hidden = false;
+    });
+    poster.addEventListener("error", () => { poster.removeAttribute("src"); });
+    poster.src = thumbUrl(img.path, img);
     tile.appendChild(poster);
     const icon = document.createElement("span");
     icon.className = "video-icon";
@@ -236,11 +269,11 @@ function renderCard(img, flatIndex) {
     const el = document.createElement("img");
     el.loading = "lazy";
     el.decoding = "async";
-    el.src = thumbUrl(img.path);
+    el.src = thumbUrl(img.path, img);
     el.alt = img.name || "";
     // 縮略圖生成失敗時回退原圖
     el.addEventListener("error", () => {
-      if (!el.dataset.fallback) { el.dataset.fallback = "1"; el.src = mediaUrl(img.path); }
+      if (!el.dataset.fallback) { el.dataset.fallback = "1"; el.src = mediaUrl(img.path, img); }
     }, { once: true });
     media.appendChild(el);
   }
@@ -311,7 +344,22 @@ function renderCard(img, flatIndex) {
     media.appendChild(actions);
   }
 
-  card.addEventListener("click", () => openLightbox(flatIndex));
+  if (dlMode) {
+    // 選擇模式：媒體右上角勾選圈；點卡片＝勾選／取消，唔再開啟 lightbox
+    const box = document.createElement("span");
+    box.className = "card-dl" + (dlSel.has(img.path) ? " on" : "");
+    box.textContent = "✓";
+    box.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleSel(img.path, card);
+    });
+    media.appendChild(box);
+  }
+
+  card.addEventListener("click", () => {
+    if (dlMode) toggleSel(img.path, card);
+    else openLightbox((page - 1) * PAGE_SIZE + flatIndex); // lightbox 序號用全量指標（跨頁連貫）
+  });
   return card;
 }
 
@@ -383,9 +431,81 @@ function renderPager(totalPages) {
 
 function updateFooter() {
   if (window.FooterKit) {
-    FooterKit.apply({ stats, folders, is_admin: isAdmin });
+    FooterKit.apply({ stats, folders, is_admin: isAdmin, downloads: downloadsEnabled });
   }
 }
+
+// ---------- 批量下載（選擇模式：卡片勾選＋橫幅；後端流式打包 ZIP） ----------
+
+function dlAllSelected() {
+  return items.length > 0 && items.every((i) => dlSel.has(i.path));
+}
+
+function updateDlBanner() {
+  els.dlInfo.textContent = I18N.t("dl.selected", { n: dlSel.size });
+  els.dlAll.textContent = I18N.t(dlAllSelected() ? "dl.none" : "dl.all");
+  els.dlGo.disabled = dlSel.size === 0;
+}
+
+function toggleSel(path, card) {
+  if (dlSel.has(path)) dlSel.delete(path);
+  else dlSel.add(path);
+  const box = card && card.querySelector(".card-dl");
+  if (box) box.classList.toggle("on", dlSel.has(path));
+  updateDlBanner();
+}
+
+function exitDlMode() {
+  dlMode = false;
+  dlSel.clear();
+  els.dlBanner.hidden = true;
+  render(pageItems);
+}
+
+function toggleDlMode() {
+  if (!downloadsEnabled) { setStatus(I18N.t("dl.off"), "err"); return; }
+  if (dlMode) { exitDlMode(); return; }
+  dlMode = true;
+  els.dlBanner.hidden = false;
+  render(pageItems);
+  updateDlBanner();
+}
+
+els.dlAll.addEventListener("click", () => {
+  if (dlAllSelected()) dlSel.clear();
+  else for (const i of items) dlSel.add(i.path); // 「全部」＝當前篩選結果（跨頁）
+  render(pageItems);
+  updateDlBanner();
+});
+
+els.dlExit.addEventListener("click", exitDlMode);
+
+els.dlGo.addEventListener("click", () => {
+  if (!dlSel.size) return;
+  els.dlPaths.value = JSON.stringify([...dlSel]);
+  els.dlGo.textContent = I18N.t("dl.busy");
+  els.dlGo.disabled = true;
+  els.dlForm.submit(); // 表單 POST → 瀏覽器原生下載進度（大檔不走 fetch/blob，免爆記憶體）
+  // 成功時附件下載唔會回來任何 iframe 事件；4 秒後恢復按鈕繼續操作
+  setTimeout(() => {
+    els.dlGo.textContent = I18N.t("dl.go");
+    if (dlSel.size) els.dlGo.disabled = false;
+  }, 4000);
+});
+
+// 後端報錯（403／400／429）會將 JSON 渲染在同源隱藏 iframe，讀出轉為橫幅提示
+els.dlFrame.addEventListener("load", () => {
+  try {
+    const doc = els.dlFrame.contentDocument;
+    const txt = doc && doc.body ? (doc.body.textContent || "").trim() : "";
+    if (!txt) return;
+    let msg = txt;
+    try { msg = JSON.parse(txt).detail || txt; } catch (_) { /* 非 JSON 原樣顯示 */ }
+    setStatus(I18N.t("dl.fail") + detailOf({ detail: msg }, 0), "err");
+  } catch (_) { /* 跨源或空文件忽略 */ }
+});
+
+if (window.FooterKit && FooterKit.setOnDownload) FooterKit.setOnDownload(toggleDlMode);
 
 // ---------- 管理端操作：隱藏／刪除 ----------
 
@@ -437,7 +557,7 @@ async function deletePhoto(img, card) {
   }
 }
 
-// ---------- Lightbox（範圍為當前頁） ----------
+// ---------- Lightbox（全量跨頁＋中圖漸進顯示） ----------
 
 function openLightbox(index) {
   current = index;
@@ -447,6 +567,7 @@ function openLightbox(index) {
 }
 
 function closeLightbox() {
+  lbToken++; // 作廢進行中的中圖預載
   els.lightbox.hidden = true;
   els.lbImg.removeAttribute("src");
   els.lbVideo.pause();
@@ -461,41 +582,77 @@ function closeLightbox() {
   current = -1;
 }
 
+function fmtRes(w, h) {
+  return w && h ? w + " × " + h : "—";
+}
+
 function showCurrent() {
-  const item = pageItems[current];
-  if (!item) return;
+  const item = items[current]; // 序號以全量（當前篩選結果）計，可跨頁連貫瀏覽
+  if (!item) { closeLightbox(); return; }
   const isVideo = item.kind === "video";
+  els.lbRes.textContent = "…"; // 分辨率待媒體元數據載入後填入
   if (isVideo) {
     // 視頻：用原生 <video controls> 播放原檔；點擊留給控件，翻頁改兩側按鈕／橫滑／鍵盤
     els.lbImg.hidden = true;
     els.lbImg.removeAttribute("src");
     els.lbVideo.hidden = false;
-    els.lbVideo.src = mediaUrl(item.path);
+    els.lbVideo.src = mediaUrl(item.path, item);
   } else {
     els.lbVideo.pause();
     els.lbVideo.removeAttribute("src");
     els.lbVideo.load();
-    els.lbVideo.hidden = true;
     els.lbImg.hidden = false;
-    els.lbImg.src = mediaUrl(item.path); // 大圖直接載入原圖
+    // 漸進顯示：先用已快取的縮圖秒開，1600px 中圖載入完成才換上（原圖只供下載）
+    els.lbImg.src = thumbUrl(item.path, item);
     els.lbImg.alt = item.name || "";
+    els.lbRes.textContent = fmtRes(item.w, item.h); // 原圖分辨率即刻顯示，唔使等中圖
+    const token = ++lbToken;
+    const target = midUrl(item.path, item);
+    const pre = new Image();
+    pre.onload = () => {
+      if (token === lbToken && !els.lightbox.hidden) els.lbImg.src = target;
+    };
+    pre.src = target;
+    if (els.lbImg.complete && els.lbImg.naturalWidth && !item.w) {
+      els.lbRes.textContent = fmtRes(els.lbImg.naturalWidth, els.lbImg.naturalHeight);
+    }
   }
-  els.lbPrev.hidden = !isVideo; // 翻頁掣僅視頻時顯示（圖片用半區點擊）
-  els.lbNext.hidden = !isVideo;
+  els.lbPrev.hidden = false; // 翻頁圓鍵統一常顯（錨定媒體邊緣；圖片同時保留半區點擊）
+  els.lbNext.hidden = false;
   els.lbName.textContent = item.name || item.path;
   // 下載按鈕：同檔原圖／原視頻，download 屬性保留原檔名
-  els.lbDl.href = mediaUrl(item.path);
+  els.lbDl.href = mediaUrl(item.path, item);
   els.lbDl.setAttribute("download", item.name || "");
   els.lbDl.hidden = false;
   const when = String(item.captured || item.mtime || "").replace("T", " ").slice(0, 16);
   els.lbIndex.textContent = (when ? when + " · " : "")
     + (item.kind === "video" ? I18N.t("index.videoWord") + " · " : "")
-    + I18N.t("index.itemOf", { n: current + 1, total: pageItems.length });
+    + I18N.t("index.itemOf", { n: current + 1, total: items.length });
 }
 
+// 視頻／缺尺寸資訊時載入後補分辨率（有 item.w/h 即刻顯示過，唔好俾中圖尺寸蓋掉）
+els.lbImg.addEventListener("load", () => {
+  const item = items[current];
+  if (!els.lightbox.hidden && item && item.kind !== "video" && !item.w
+      && els.lbImg.naturalWidth) {
+    els.lbRes.textContent = fmtRes(els.lbImg.naturalWidth, els.lbImg.naturalHeight);
+  }
+});
+els.lbVideo.addEventListener("loadedmetadata", () => {
+  if (!els.lightbox.hidden && items[current] && items[current].kind === "video") {
+    els.lbRes.textContent = fmtRes(els.lbVideo.videoWidth, els.lbVideo.videoHeight);
+  }
+});
+
 function step(delta) {
-  if (current < 0 || pageItems.length === 0) return;
-  current = (current + delta + pageItems.length) % pageItems.length; // 頁內循環
+  if (current < 0 || items.length === 0) return;
+  current = (current + delta + items.length) % items.length; // 全量循環（跨頁連貫）
+  // 翻頁越過頁界時背景網格自動跟隨，關閉後所見即當前所覽
+  const target = Math.floor(current / PAGE_SIZE) + 1;
+  if (target !== page) {
+    page = target;
+    refresh();
+  }
   showCurrent();
 }
 
@@ -748,6 +905,8 @@ async function loadGallery() {
     display = data.display || { date: false, name: false, photos: true, videos: true };
     sortCfg = data.sort || { by: "captured", desc: true }; // 全局排序自設置頁下發
     stats = data.stats || null;
+    downloadsEnabled = Boolean(data.downloads);
+    if (!downloadsEnabled && dlMode) exitDlMode(); // 管理員中途關閉則退出選擇模式
 
     folders = Array.isArray(data.folders) ? data.folders : [];
     allItems = [];
@@ -785,6 +944,7 @@ document.addEventListener("i18n:lang", () => {
   if (!els.gate.hidden) setGateMsg(I18N.t("gate.prompt"));
   if (stats) updateFooter();
   updateFaceBanner();
+  if (!els.dlBanner.hidden) updateDlBanner();
   if (items.length) refresh();
 });
 

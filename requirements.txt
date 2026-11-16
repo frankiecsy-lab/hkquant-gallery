@@ -4,5 +4,7 @@ uvicorn>=0.40,<1.0
 # 缩略图与 EXIF 拍摄时间（本地 12.2.0）
 pillow>=11.0,<13.0
 # 人脸检索（buffalo_sc ONNX 推理；纯 CPU、单线程会话）
+zipstream-ng
+imageio-ffmpeg
 onnxruntime>=1.19,<2.0
 numpy>=1.26,<3.0

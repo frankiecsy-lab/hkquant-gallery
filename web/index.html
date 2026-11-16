@@ -24,6 +24,12 @@
     <!-- 行內狀態提示：載入中／空圖庫／失敗 -->
     <p id="status" class="status" role="status" data-i18n="index.loading">載入中…</p>
     <!-- 人臉匹配橫幅：只過濾本頁顯示，不影響全局設置 -->
+    <div id="dl-banner" class="face-banner dl-banner" role="status" hidden>
+      <span id="dl-info"></span>
+      <button type="button" class="face-reset" id="dl-all" data-i18n="dl.all">全選</button>
+      <button type="button" class="face-reset" id="dl-go" disabled data-i18n="dl.go">下載 ZIP</button>
+      <button type="button" class="face-reset" id="dl-exit" data-i18n="dl.exit">退出</button>
+    </div>
     <p id="face-banner" class="face-banner" role="status" hidden>
       <span id="face-banner-text"></span>
       <button type="button" id="face-reset" class="face-reset" data-i18n="face.showAll">返回全部</button>
@@ -60,22 +66,34 @@
     </div>
   </div>
 
-  <!-- 全螢幕預覽（lightbox）：圖片時左半＝上一張、右半＝下一張；視頻用原生控件播放 -->
+  <!-- 全螢幕預覽（lightbox）：序號範圍＝全部項目（跨頁連貫，翻頁自動跟隨分頁）；
+       圖片與視頻統一顯示貼媒體邊緣的 ‹ › 翻頁圓鍵（圖片另支援左右半區點擊）；
+       視頻用原生控件播放；說明三行＝檔名／分辨率／時間＋項數 -->
   <div id="lightbox" class="lightbox" hidden aria-modal="true" role="dialog" aria-label="圖片預覽" data-i18n-aria="index.lightboxAria">
     <button type="button" class="lb-btn lb-close" id="lb-close" aria-label="關閉">&times;</button>
-    <!-- 視頻專用翻頁掣（圖片用左右半區點擊；視頻點擊留給原生控件故補掣） -->
-    <button type="button" class="lb-btn lb-prev" id="lb-prev" aria-label="上一張" title="上一張" data-i18n-aria="index.prevItem" hidden>&#8249;</button>
-    <button type="button" class="lb-btn lb-next" id="lb-next" aria-label="下一張" title="下一張" data-i18n-aria="index.nextItem" hidden>&#8250;</button>
     <a id="lb-download" class="lb-btn lb-download" href="#" download aria-label="下載" title="下載" data-i18n-aria="index.download" hidden>&#11015;</a>
     <figure class="lb-figure">
-      <img id="lb-img" alt="" class="lb-half-nav">
-      <video id="lb-video" controls playsinline hidden></video>
+      <!-- 媒體層：翻頁圓鍵錨定於此（貼媒體左右緣、垂直置中），圖片與視頻統一 -->
+      <div class="lb-media">
+        <img id="lb-img" alt="" class="lb-half-nav">
+        <video id="lb-video" controls playsinline hidden></video>
+        <button type="button" class="lb-btn lb-prev" id="lb-prev" aria-label="上一張" title="上一張" data-i18n-aria="index.prevItem">&#8249;</button>
+        <button type="button" class="lb-btn lb-next" id="lb-next" aria-label="下一張" title="下一張" data-i18n-aria="index.nextItem">&#8250;</button>
+      </div>
       <figcaption class="lb-caption">
         <span id="lb-name" class="lb-name"></span>
+        <span id="lb-res" class="lb-res"></span>
         <span id="lb-index" class="lb-index"></span>
       </figcaption>
     </figure>
   </div>
+
+  <!-- ZIP 下載：表單 POST 觸發瀏覽器原生下載（x-www-form-urlencoded，後端內建解析）；
+       後端報錯時 JSON 會渲染於隱藏 iframe，同頁讀出轉為橫幅提示 -->
+  <form id="dl-form" method="post" action="/api/download/zip" target="dl-frame" hidden>
+    <input type="hidden" name="paths" id="dl-paths">
+  </form>
+  <iframe id="dl-frame" name="dl-frame" title="" aria-hidden="true" hidden></iframe>
 
   <script src="/i18n.js"></script>
   <script src="/footer.js"></script>
