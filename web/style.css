@@ -282,33 +282,8 @@ html, body {
   padding-left: 4px; /* ▶ 光學居中 */
 }
 
-/* Lightbox：圖片／視頻海報左右半區翻頁；中開播放鍵；視頻播放器 */
+/* Lightbox：圖片左右半區翻頁；視頻播放器 */
 .lb-half-nav { cursor: pointer; }
-#lb-video-poster {
-  background: #000;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-.lb-play {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 101;
-  width: 72px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid var(--accent);
-  border-radius: 50%;
-  background: rgba(5, 8, 12, 0.55);
-  color: var(--accent);
-  font-size: 1.7rem;
-  padding-left: 6px; /* ▶ 光學居中 */
-  cursor: pointer;
-}
-.lb-play:hover { background: var(--accent-dim); }
 #lb-video {
   max-width: min(94vw, 1100px);
   max-height: 82vh;

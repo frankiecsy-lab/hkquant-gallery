@@ -13,8 +13,6 @@ const els = {
   pager: document.getElementById("pager"),
   lightbox: document.getElementById("lightbox"),
   lbImg: document.getElementById("lb-img"),
-  lbPoster: document.getElementById("lb-video-poster"),
-  lbPlay: document.getElementById("lb-play"),
   lbVideo: document.getElementById("lb-video"),
   lbName: document.getElementById("lb-name"),
   lbIndex: document.getElementById("lb-index"),
@@ -430,8 +428,6 @@ function closeLightbox() {
   els.lbVideo.removeAttribute("src");
   els.lbVideo.load(); // 釋放解碼資源
   els.lbVideo.hidden = true;
-  els.lbPoster.hidden = true;
-  els.lbPlay.hidden = true;
   els.lbImg.hidden = false;
   els.lbDl.hidden = true;
   document.body.style.overflow = "";
@@ -442,29 +438,16 @@ function showCurrent() {
   const item = pageItems[current];
   if (!item) return;
   if (item.kind === "video") {
-    // 視頻：未播放前顯示第一格海報＋中間播放鍵（左右半區仍可翻頁）；
-    // 按播放鍵才載入原生 <video controls>（播放中點擊留給控件，不翻頁）
+    // 視頻：用原生 <video controls> 播放原檔；點擊不翻頁（留給控件）
     els.lbImg.hidden = true;
     els.lbImg.removeAttribute("src");
-    els.lbVideo.pause();
-    els.lbVideo.removeAttribute("src");
-    els.lbVideo.load();
-    els.lbVideo.hidden = true;
-    if (item.poster) {
-      els.lbPoster.src = item.poster;
-      els.lbPoster.hidden = false;
-    } else {
-      els.lbPoster.removeAttribute("src");
-      els.lbPoster.hidden = true; // 未抽到海報（格式不支援）：黑底只餘播放鍵
-    }
-    els.lbPlay.hidden = false;
+    els.lbVideo.hidden = false;
+    els.lbVideo.src = mediaUrl(item.path);
   } else {
     els.lbVideo.pause();
     els.lbVideo.removeAttribute("src");
     els.lbVideo.load();
     els.lbVideo.hidden = true;
-    els.lbPoster.hidden = true;
-    els.lbPlay.hidden = true;
     els.lbImg.hidden = false;
     els.lbImg.src = mediaUrl(item.path); // 大圖直接載入原圖
     els.lbImg.alt = item.name || "";
@@ -501,28 +484,11 @@ els.lightbox.addEventListener("click", (e) => {
 
 els.lbClose.addEventListener("click", closeLightbox);
 
-// 圖片／視頻海報時左右半區翻頁：左 50%＝上一張、右 50%＝下一張
-// （視頻播放中不攔截，留給原生控件）
-function halfNav(el) {
-  el.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const rect = el.getBoundingClientRect();
-    step(e.clientX - rect.left < rect.width / 2 ? -1 : 1);
-  });
-}
-halfNav(els.lbImg);
-halfNav(els.lbPoster);
-
-// 中間播放鍵：載入原檔並自動播放（被政策拒絕時退回原生控件手動播放）
-els.lbPlay.addEventListener("click", (e) => {
+// 圖片時左右半區翻頁：左 50%＝上一張、右 50%＝下一張（視頻時不攔截，留給播放控件）
+els.lbImg.addEventListener("click", (e) => {
   e.stopPropagation();
-  const item = pageItems[current];
-  if (!item || item.kind !== "video") return;
-  els.lbPoster.hidden = true;
-  els.lbPlay.hidden = true;
-  els.lbVideo.hidden = false;
-  els.lbVideo.src = mediaUrl(item.path);
-  els.lbVideo.play().catch(() => {});
+  const rect = els.lbImg.getBoundingClientRect();
+  step(e.clientX - rect.left < rect.width / 2 ? -1 : 1);
 });
 
 // 手機左右滑動切換（橫向位移明顯大於縱向才觸發，避免誤判垂直捲動）

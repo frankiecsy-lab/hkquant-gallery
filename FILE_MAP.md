@@ -4,7 +4,7 @@
 - `app/store.py` — JSON 數據層：settings/auth 原子讀寫、scrypt 密碼（管理＋查看）、會話表（管理/查看）、失敗鎖定、隱藏清單、顯示開關（date/name/photos/videos）、全局排序（sort_by/sort_desc）、可見資料夾（visible_folders，null＝全部）、界面語言（lang，默認 zh）、損壞備份
 - `app/scanner.py` — 圖庫目錄遞歸掃描（IMAGE_EXTS＋VIDEO_EXTS→MEDIA_EXTS 白名單、跳隱藏檔、entry.kind 區分圖/視頻、分組、TTL 緩存、截斷上限）＋EXIF 拍攝時間提取（視頻取 mtime；meta.json 增量快取、purge/prune）
 - `app/config.py` — 環境變數配置（FTP 根、數據目錄、cookie/鎖定策略、配額字節數、縮略圖尺寸/質量、在線窗口）
-- `web/index.html` + `web/app.js` — 首頁：冇工具列（排序/篩選由設置下發）、縮圖網格（/thumb＋figcaption 日期/檔名置中＋視頻 ▶ 瓦片（瀏覽器端抽第一格作海報）＋分頁每頁 60，頁碼存 sessionStorage 返回還原）、lightbox（圖片/視頻海報左右半區翻頁＋中間播放鍵＋⬇ 下載＋原生 video 播放，鍵盤/觸控，限當前頁）、管理模式卡片隱藏/刪除按鈕（透明深灰底藍/紅框）、查看密碼數字鍵盤閘卡
+- `web/index.html` + `web/app.js` — 首頁：冇工具列（排序/篩選由設置下發）、縮圖網格（/thumb＋figcaption 日期/檔名置中＋視頻 ▶ 瓦片（瀏覽器端抽第一格作海報）＋分頁每頁 60，頁碼存 sessionStorage 返回還原）、lightbox（圖片左右半區翻頁＋⬇ 下載＋原生 video 播放，鍵盤/觸控，限當前頁）、管理模式卡片隱藏/刪除按鈕（透明深灰底藍/紅框）、查看密碼數字鍵盤閘卡
 - `web/i18n.js` — 雙語文案組件（window.I18N，繁中／英文）：字典＋t()/detail()＋data-i18n 渲染＋"i18n:lang" 廣播；語言由設置頁全局配置（默認繁中）
 - `web/footer.js` — 全域頁腳組件（window.FooterKit）：統計/儲存/資料夾張數/管理入口/署名，首頁／管理／設置三頁掛 body 最底，60 秒自動刷新，403 靜默降級
 - `web/settings.html` + `web/settings.js` — 顯示設置頁（所有訪客，四面板 Cookie 自動保存）：界面語言（繁中/英文）、主頁內容（相片/視頻）、縮略圖資訊（日期/檔名）、排序方式（radio）；第五面板「顯示資料夾」屬全局僅管理員可見；底部返回主頁按鈕
