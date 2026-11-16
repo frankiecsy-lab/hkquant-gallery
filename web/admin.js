@@ -378,10 +378,11 @@ els.deleteAllForm.addEventListener("submit", (e) => {
 els.logoutBtn.addEventListener("click", () => {
   withBusy(els.logoutBtn, async () => {
     const { status, data } = await postJson("/api/logout", {});
-    // 契約：後端恆回 {"ok":true}；即便異常也退回登入卡，避免卡死
+    // 契約：後端恆回 {"ok":true}；成功即返回主頁（首頁自動還原頁碼），異常才退回登入卡
     if (status === 200 || !data || data.ok) {
       showLogin();
       setMsg(els.loginMsg, I18N.t("admin.loggedOut"), "ok");
+      setTimeout(() => { location.href = "/"; }, 600);
     } else {
       setMsg(els.logoutMsg, detailOf(data, status), "err");
     }

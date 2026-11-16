@@ -1,11 +1,10 @@
 "use strict";
-// 全局設置頁：界面語言（繁中／英文）、主頁內容（相片／視頻）、縮略圖資訊（日期／檔名）、
-// 排序方式、資料夾可見性（複選）。任何變更即時自動保存；全部僅管理員可用，
-// 未登入顯示引導面板。對應端點：POST /api/settings/lang|display|sort|folders。
+// 顯示設置頁（所有訪客可用，無需登入）：界面語言、主頁內容（相片／視頻）、縮略圖資訊、
+// 排序方式——全部保存在本瀏覽器 Cookie（GET/POST /api/prefs），任何變更即時自動保存。
+// 「顯示資料夾」屬全局設置僅管理員可見（GET /api/settings＋POST /api/settings/folders）。
+// 「返回主頁」直接跳回首頁（首頁自行還原之前頁碼）。
 
 const els = {
-  needLogin: document.getElementById("need-login"),
-  panels: document.getElementById("panels"),
   langZh: document.getElementById("lang-zh"),
   langEn: document.getElementById("lang-en"),
   optPhotos: document.getElementById("opt-photos"),
@@ -17,12 +16,14 @@ const els = {
   sortByName: document.getElementById("sort-by-name"),
   sortDesc: document.getElementById("sort-desc"),
   sortAsc: document.getElementById("sort-asc"),
+  folderPanel: document.getElementById("folder-panel"),
   folderList: document.getElementById("folder-list"),
-  saveBtn: document.getElementById("save-btn"),
+  backHomeBtn: document.getElementById("back-home-btn"),
   saveMsg: document.getElementById("save-msg"),
 };
 
-let lastSettings = null; // 快取設定資料，語言切換時重建資料夾清單等動態文字
+let lastPrefs = null;    // 最近一次生效的訪客設置（語言切換時重渲染提示）
+let lastSettings = null; // 管理員資料夾面板資料
 
 function api(url, options) {
   const opts = Object.assign({ credentials: "same-origin" }, options || {});
@@ -51,62 +52,49 @@ function setMsg(text, kind) {
   els.saveMsg.className = "msg" + (kind ? " " + kind : "");
 }
 
-function backToLogin() {
-  els.panels.hidden = true;
-  els.needLogin.hidden = false;
+// 訪客偏好寫入 Cookie：成功時服務端回傳合併後的完整設置
+async function savePrefs(payload, okKey) {
+  setMsg("");
+  const { status, data } = await postJson("/api/prefs", payload);
+  if (status === 200 && data && data.ok) {
+    lastPrefs = { lang: data.lang, display: data.display, sort: data.sort };
+    setMsg(I18N.t(okKey), "ok");
+    updateContentHint(data.display);
+    return data;
+  }
+  setMsg(detailOf(data, status), "err");
+  return null;
 }
 
-// 界面語言：保存到服務端並即時套用到本頁（I18N.setLang 會廣播 i18n:lang）
+// 界面語言：寫入 Cookie 並即時套用到本頁（I18N.setLang 會廣播 i18n:lang）
 async function saveLang() {
-  setMsg("");
   const lang = els.langEn.checked ? "en" : "zh";
-  const { status, data } = await postJson("/api/settings/lang", { lang });
-  if (status === 200 && data && data.ok) {
-    I18N.setLang(data.lang);
-    setMsg(I18N.t("settings.langSaved"), "ok");
-  } else if (status === 401) {
-    backToLogin();
-  } else {
-    setMsg(detailOf(data, status), "err");
-  }
+  const data = await savePrefs({ lang }, "settings.langSaved");
+  if (data) I18N.setLang(data.lang);
 }
 
 async function saveDisplay() {
-  setMsg("");
-  const { status, data } = await postJson("/api/settings/display", {
-    date: els.optDate.checked,
-    name: els.optName.checked,
-    photos: els.optPhotos.checked,
-    videos: els.optVideos.checked,
-  });
-  if (status === 200 && data && data.ok) {
-    setMsg(I18N.t("settings.displaySaved"), "ok");
-    updateContentHint(data.display);
-  } else if (status === 401) {
-    backToLogin();
-  } else {
-    setMsg(detailOf(data, status), "err");
-  }
+  await savePrefs({
+    display: {
+      date: els.optDate.checked,
+      name: els.optName.checked,
+      photos: els.optPhotos.checked,
+      videos: els.optVideos.checked,
+    },
+  }, "settings.displaySaved");
 }
 
 async function saveSort() {
-  setMsg("");
-  const by = els.sortByName.checked ? "name" : "captured";
-  const desc = els.sortDesc.checked;
-  const { status, data } = await postJson("/api/settings/sort", { by, desc });
-  if (status === 200 && data && data.ok) {
-    setMsg(I18N.t("settings.sortSaved"), "ok");
-  } else if (status === 401) {
-    backToLogin();
-  } else {
-    setMsg(detailOf(data, status), "err");
-  }
+  await savePrefs({
+    sort: { by: els.sortByName.checked ? "name" : "captured", desc: els.sortDesc.checked },
+  }, "settings.sortSaved");
 }
 
 function folderChecks() {
   return Array.from(els.folderList.querySelectorAll("input[type=checkbox]"));
 }
 
+// 資料夾可見性：全局設置（僅管理員面板可見）
 async function saveFolders() {
   setMsg("");
   const boxes = folderChecks();
@@ -120,8 +108,6 @@ async function saveFolders() {
       ? I18N.t("settings.foldersNone")
       : I18N.t("settings.foldersSaved"), checked.length === 0 ? "err" : "ok");
     if (checked.length === 0) boxes.forEach((b) => { b.checked = true; });
-  } else if (status === 401) {
-    backToLogin();
   } else {
     setMsg(detailOf(data, status), "err");
   }
@@ -156,17 +142,9 @@ function buildFolderList(allFolders, visible) {
   }
 }
 
-async function saveAll() {
-  els.saveBtn.disabled = true;
-  try {
-    await saveLang();
-    await saveDisplay();
-    await saveSort();
-    await saveFolders();
-  } finally {
-    els.saveBtn.disabled = false;
-  }
-}
+els.backHomeBtn.addEventListener("click", () => {
+  location.href = "/"; // 所有開關已自動保存，直接返主頁（首頁還原頁碼）
+});
 
 // 全部開關即時自動保存
 for (const el of [els.langZh, els.langEn]) {
@@ -178,46 +156,42 @@ for (const el of [els.optPhotos, els.optVideos, els.optDate, els.optName]) {
 for (const el of [els.sortByTime, els.sortByName, els.sortDesc, els.sortAsc]) {
   el.addEventListener("change", saveSort);
 }
-els.saveBtn.addEventListener("click", saveAll);
 
 // 語言切換：重建含動態文字的清單與提示（靜態標籤由 I18N.applyDom 處理）
 document.addEventListener("i18n:lang", () => {
-  if (lastSettings) {
-    updateContentHint(lastSettings.display);
-    buildFolderList(lastSettings.all_folders || [], lastSettings.visible_folders);
-  }
+  if (lastPrefs) updateContentHint(lastPrefs.display);
+  if (lastSettings) buildFolderList(lastSettings.all_folders || [], lastSettings.visible_folders);
 });
 
 (async function init() {
   await I18N.init();
   try {
-    const { status, data } = await api("/api/session"); // 契約：恆 200 {"logged_in": bool}
-    if (!(status === 200 && data && data.logged_in)) {
-      els.needLogin.hidden = false;
-      return;
-    }
-    const settings = await api("/api/settings");
-    if (settings.status === 200 && settings.data) {
-      lastSettings = settings.data;
-      const d = settings.data.display || {};
-      els.optPhotos.checked = d.photos !== false;
-      els.optVideos.checked = d.videos !== false;
-      els.optDate.checked = Boolean(d.date);
-      els.optName.checked = Boolean(d.name);
-      updateContentHint(d);
-      const sort = settings.data.sort || { by: "captured", desc: true };
+    const { status, data } = await api("/api/prefs");
+    if (status === 200 && data) {
+      lastPrefs = data;
+      els.optPhotos.checked = data.display.photos !== false;
+      els.optVideos.checked = data.display.videos !== false;
+      els.optDate.checked = Boolean(data.display.date);
+      els.optName.checked = Boolean(data.display.name);
+      updateContentHint(data.display);
+      const sort = data.sort || { by: "captured", desc: true };
       els.sortByName.checked = sort.by === "name";
       els.sortByTime.checked = sort.by !== "name";
       els.sortDesc.checked = Boolean(sort.desc);
       els.sortAsc.checked = !sort.desc;
-      els.langEn.checked = settings.data.lang === "en";
-      els.langZh.checked = settings.data.lang !== "en";
-      buildFolderList(settings.data.all_folders || [], settings.data.visible_folders);
-      els.panels.hidden = false;
-    } else {
-      els.needLogin.hidden = false;
+      els.langEn.checked = data.lang === "en";
+      els.langZh.checked = data.lang !== "en";
+      if (data.is_admin) {
+        // 管理員額外顯示全局資料夾面板
+        const settings = await api("/api/settings");
+        if (settings.status === 200 && settings.data) {
+          lastSettings = settings.data;
+          els.folderPanel.hidden = false;
+          buildFolderList(settings.data.all_folders || [], settings.data.visible_folders);
+        }
+      }
     }
   } catch (_) {
-    els.needLogin.hidden = false;
+    setMsg(I18N.t("common.netRetry"), "err");
   }
 })();

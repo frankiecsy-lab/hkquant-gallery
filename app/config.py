@@ -43,6 +43,9 @@ QUOTA_BYTES = int(os.environ.get("GALLERY_QUOTA_BYTES", str(10 * 1024 ** 3)))
 # 会话 Cookie 名称（前后端唯一约定）。
 COOKIE_NAME = "gallery_session"
 VIEW_COOKIE_NAME = "gallery_view"
+# 访客显示设置 Cookie（语言／内容开关／排序，仅影响本浏览器，长期保存）。
+PREFS_COOKIE_NAME = "gallery_prefs"
+PREFS_TTL_SECONDS = 60 * 60 * 24 * 365
 
 # 缩略图：最长边像素与 JPEG 质量（1.6G RAM：解码前 draft 降采样，峰值内存可控）。
 THUMB_MAX_SIDE = int(os.environ.get("GALLERY_THUMB_MAX_SIDE", "640"))

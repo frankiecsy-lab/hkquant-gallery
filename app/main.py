@@ -13,6 +13,7 @@ import re
 import threading
 import time
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
@@ -262,7 +263,9 @@ def gallery(request: Request):
         gallery_root = config.FTP_ROOT
         rel = "."
     raw_folders, truncated = scanner.scan(gallery_root)
-    display = store.get_display()
+    # 显示设置：访客 Cookie 优先，未设置时回退全局（管理端配置的站点默认值）
+    prefs = _prefs_from_request(request)
+    display = prefs["display"]
     visible_folders = store.get_visible_folders()  # None＝全部可见（管理页复选）
 
     # 隐藏照片：公众完全不可见；管理端可见但带 hidden 标记（前端变暗）
@@ -302,7 +305,7 @@ def gallery(request: Request):
         "folders": folders,
         "is_admin": is_admin,
         "display": display,
-        "sort": store.get_sort(),
+        "sort": prefs["sort"],
         "stats": {
             "total": visible_total,
             "last_updated": last_updated,
@@ -579,10 +582,92 @@ def photo_delete_all(body: DeleteAllBody):
 
 # ---------- 查看密码（首页闸门） ----------
 
+# ---------- 访客显示设置（Cookie 优先，未设置回退全局默认；仅影响外观无安全含义） ----------
+
+def _prefs_from_request(request: Request) -> dict:
+    """解析访客偏好 Cookie：格式 `lang|dddd|by.desc`（例 zh|0011|captured.1；
+    dddd＝date,name,photos,videos）。嚴禁含逗號——Starlette 會為含逗號的
+    Cookie 值加引號與八進位轉義，令雙端解析混亂。
+
+    缺失或任一段非法时该段回退全局设置；返回 {lang, display, sort} 均为新对象。
+    """
+    lang = store.get_lang()
+    display = dict(store.get_display())
+    sort_cfg = dict(store.get_sort())
+    parts = (request.cookies.get(config.PREFS_COOKIE_NAME) or "").split("|")
+    if len(parts) == 3:
+        if parts[0] in ("zh", "en"):
+            lang = parts[0]
+        flags = parts[1]
+        if len(flags) == 4 and all(f in ("0", "1") for f in flags):
+            display.update(date=flags[0] == "1", name=flags[1] == "1",
+                           photos=flags[2] == "1", videos=flags[3] == "1")
+        sort_parts = parts[2].split(".")
+        if len(sort_parts) == 2 and sort_parts[0] in ("captured", "name") and sort_parts[1] in ("0", "1"):
+            sort_cfg = {"by": sort_parts[0], "desc": sort_parts[1] == "1"}
+    return {"lang": lang, "display": display, "sort": sort_cfg}
+
+
+def _prefs_cookie_value(prefs: dict) -> str:
+    d = prefs["display"]
+    return "%s|%d%d%d%d|%s.%d" % (
+        prefs["lang"], d["date"], d["name"], d["photos"], d["videos"],
+        prefs["sort"]["by"], prefs["sort"]["desc"])
+
+
+class PrefsBody(BaseModel):
+    """部分更新：未提供（None）的段维持现状。"""
+    lang: Optional[str] = None
+    display: Optional[dict] = None
+    sort: Optional[dict] = None
+
+
+@app.get("/api/prefs")
+def get_prefs(request: Request):
+    """访客当前显示设置（Cookie 合并全局默认）；is_admin 供设置页条件渲染。"""
+    prefs = _prefs_from_request(request)
+    prefs["is_admin"] = store.check_session(request.cookies.get(config.COOKIE_NAME))
+    return prefs
+
+
+@app.post("/api/prefs")
+def set_prefs(request: Request, body: PrefsBody):
+    """更新访客显示设置：仅写本浏览器长期 Cookie，不修改服务器全局设置。"""
+    prefs = _prefs_from_request(request)
+    if body.lang is not None:
+        lang = body.lang.strip().lower()
+        if lang not in ("zh", "en"):
+            raise HTTPException(status_code=400, detail="語言選項不合法")
+        prefs["lang"] = lang
+    if body.display is not None:
+        for key in ("date", "name", "photos", "videos"):
+            if key in body.display:
+                prefs["display"][key] = bool(body.display[key])
+    if body.sort is not None:
+        by = str(body.sort.get("by", "")).strip().lower()
+        if by == "time":
+            by = "captured"
+        if by not in ("captured", "name"):
+            raise HTTPException(status_code=400, detail="排序方式不合法")
+        prefs["sort"] = {"by": by, "desc": bool(body.sort.get("desc", True))}
+    response = JSONResponse({"ok": True, "lang": prefs["lang"],
+                             "display": prefs["display"], "sort": prefs["sort"]})
+    response.set_cookie(
+        key=config.PREFS_COOKIE_NAME,
+        value=_prefs_cookie_value(prefs),
+        max_age=config.PREFS_TTL_SECONDS,
+        httponly=False,  # 纯外观偏好，非敏感
+        secure=config.COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
 @app.get("/api/lang")
-def get_lang_ep():
-    """公开界面語言（前端 i18n.js 启动时读取）。"""
-    return {"lang": store.get_lang()}
+def get_lang_ep(request: Request):
+    """公开界面語言（前端 i18n.js 启动时读取；访客 Cookie 优先）。"""
+    return {"lang": _prefs_from_request(request)["lang"]}
 
 
 @app.get("/api/view/state")

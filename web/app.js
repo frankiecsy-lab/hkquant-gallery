@@ -13,6 +13,8 @@ const els = {
   pager: document.getElementById("pager"),
   lightbox: document.getElementById("lightbox"),
   lbImg: document.getElementById("lb-img"),
+  lbPoster: document.getElementById("lb-video-poster"),
+  lbPlay: document.getElementById("lb-play"),
   lbVideo: document.getElementById("lb-video"),
   lbName: document.getElementById("lb-name"),
   lbIndex: document.getElementById("lb-index"),
@@ -76,6 +78,83 @@ function fmtBytes(n) {
   return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + " " + units[i];
 }
 
+// ---------- 視頻海報：瀏覽器端抽取第一格畫面（零後端負載；解碼不了的格式保留 ▶ 瓦片） ----------
+
+const POSTER_MAX_SIDE = 640;
+const POSTER_CONCURRENCY = 3;
+const POSTER_TIMEOUT_MS = 12000;
+let renderSeq = 0;        // 渲染代號：換頁/重渲染後丟棄舊任務
+let posterQueue = [];
+let posterActive = 0;
+
+function queuePoster(seq, tile, item) {
+  posterQueue.push({ seq, tile, item });
+  pumpPosterQueue();
+}
+
+function pumpPosterQueue() {
+  while (posterActive < POSTER_CONCURRENCY && posterQueue.length) {
+    const job = posterQueue.shift();
+    if (job.seq !== renderSeq || !document.contains(job.tile)) continue; // 已過期
+    posterActive++;
+    capturePoster(job.item, (dataUrl) => {
+      posterActive--;
+      if (dataUrl) job.item.poster = dataUrl; // 快喺 item 上，lightbox 開片時重用
+      if (dataUrl && job.seq === renderSeq && document.contains(job.tile)) {
+        const img = job.tile.querySelector(".video-poster");
+        if (img) { img.src = dataUrl; img.hidden = false; }
+      }
+      pumpPosterQueue();
+    });
+  }
+}
+
+// 隱藏 <video> 解碼一幀 → canvas → dataURL（同源，無 canvas 污染問題）
+function capturePoster(item, done) {
+  let finished = false;
+  const finish = (v) => { if (!finished) { finished = true; done(v); } };
+  const video = document.createElement("video");
+  video.muted = true;
+  video.preload = "metadata";
+  video.playsInline = true;
+  const timer = setTimeout(() => cleanup(null), POSTER_TIMEOUT_MS);
+  function cleanup(result) {
+    clearTimeout(timer);
+    video.removeAttribute("src");
+    video.load(); // 釋放解碼資源
+    finish(result);
+  }
+  function draw() {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) { cleanup(null); return; }
+    const scale = Math.min(1, POSTER_MAX_SIDE / Math.max(vw, vh));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(vw * scale));
+    canvas.height = Math.max(1, Math.round(vh * scale));
+    try {
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      cleanup(canvas.toDataURL("image/jpeg", 0.72));
+    } catch (_) {
+      cleanup(null); // 個別編碼限制下 toDataURL 可能拋錯
+    }
+  }
+  video.addEventListener("error", () => cleanup(null), { once: true });
+  video.addEventListener("loadeddata", () => {
+    // 抽開首一小段作靜幀（部分視頻首格偏黑）；極短片直接用第一格
+    const d = Number.isFinite(video.duration) ? video.duration : 0;
+    const target = d > 0.4 ? Math.min(1, d * 0.25) : 0;
+    if (target > 0) {
+      video.addEventListener("seeked", draw, { once: true });
+      try { video.currentTime = target; } catch (_) { draw(); }
+    } else {
+      draw();
+    }
+  }, { once: true });
+  video.src = mediaUrl(item.path);
+  video.load();
+}
+
 // ---------- 排序＋分頁＋渲染（資料夾可見性與排序方式均由設置頁全局配置） ----------
 
 function sortedItems() {
@@ -94,10 +173,15 @@ function sortedItems() {
   return list;
 }
 
+// 頁碼記憶：由設置頁／管理頁返回時還原之前睇開嘅頁（越界由 totalPages clamp）
+const PAGE_KEY = "gallery.page";
+
 function refresh() {
   items = sortedItems();
   const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   if (page > totalPages) page = totalPages;
+  if (page < 1) page = 1;
+  try { sessionStorage.setItem(PAGE_KEY, String(page)); } catch (_) { /* 隱私模式容忍 */ }
   pageItems = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   render(pageItems);
   renderPager(totalPages);
@@ -109,16 +193,23 @@ function renderCard(img, flatIndex) {
   card.title = img.name || img.path;
 
   if (img.kind === "video") {
-    // 視頻卡：黑底播放瓦片（服務端不生成視頻縮略圖），點擊開啟內嵌播放器
+    // 視頻卡：黑底播放瓦片＋瀏覽器端抽取的第一格海報（服務端不解碼視頻），
+    // 瀏覽器無法解碼的格式自動保留 ▶ 瓦片；點擊開啟內嵌播放器
     const tile = document.createElement("div");
     tile.className = "video-tile";
     tile.setAttribute("role", "img");
     tile.setAttribute("aria-label", I18N.t("index.videoPrefix") + (img.name || img.path));
+    const poster = document.createElement("img");
+    poster.className = "video-poster";
+    poster.alt = "";
+    poster.hidden = true;
+    tile.appendChild(poster);
     const icon = document.createElement("span");
     icon.className = "video-icon";
     icon.textContent = "▶";
     tile.appendChild(icon);
     card.appendChild(tile);
+    queuePoster(renderSeq, tile, img);
   } else {
     const el = document.createElement("img");
     el.loading = "lazy";
@@ -203,6 +294,9 @@ function renderCard(img, flatIndex) {
 
 function render(list) {
   els.gallery.textContent = "";
+  // 令舊的視頻海報任務全部過期（異步回調不再寫入已替換的 DOM）
+  renderSeq++;
+  posterQueue = [];
 
   if (list.length === 0) {
     setStatus(I18N.t("index.empty"), "ok");
@@ -336,6 +430,8 @@ function closeLightbox() {
   els.lbVideo.removeAttribute("src");
   els.lbVideo.load(); // 釋放解碼資源
   els.lbVideo.hidden = true;
+  els.lbPoster.hidden = true;
+  els.lbPlay.hidden = true;
   els.lbImg.hidden = false;
   els.lbDl.hidden = true;
   document.body.style.overflow = "";
@@ -346,16 +442,29 @@ function showCurrent() {
   const item = pageItems[current];
   if (!item) return;
   if (item.kind === "video") {
-    // 視頻：用原生 <video controls> 播放原檔；點擊不翻頁（留給控件）
+    // 視頻：未播放前顯示第一格海報＋中間播放鍵（左右半區仍可翻頁）；
+    // 按播放鍵才載入原生 <video controls>（播放中點擊留給控件，不翻頁）
     els.lbImg.hidden = true;
     els.lbImg.removeAttribute("src");
-    els.lbVideo.hidden = false;
-    els.lbVideo.src = mediaUrl(item.path);
+    els.lbVideo.pause();
+    els.lbVideo.removeAttribute("src");
+    els.lbVideo.load();
+    els.lbVideo.hidden = true;
+    if (item.poster) {
+      els.lbPoster.src = item.poster;
+      els.lbPoster.hidden = false;
+    } else {
+      els.lbPoster.removeAttribute("src");
+      els.lbPoster.hidden = true; // 未抽到海報（格式不支援）：黑底只餘播放鍵
+    }
+    els.lbPlay.hidden = false;
   } else {
     els.lbVideo.pause();
     els.lbVideo.removeAttribute("src");
     els.lbVideo.load();
     els.lbVideo.hidden = true;
+    els.lbPoster.hidden = true;
+    els.lbPlay.hidden = true;
     els.lbImg.hidden = false;
     els.lbImg.src = mediaUrl(item.path); // 大圖直接載入原圖
     els.lbImg.alt = item.name || "";
@@ -392,11 +501,28 @@ els.lightbox.addEventListener("click", (e) => {
 
 els.lbClose.addEventListener("click", closeLightbox);
 
-// 圖片時左右半區翻頁：左 50%＝上一張、右 50%＝下一張（視頻時不攔截，留給播放控件）
-els.lbImg.addEventListener("click", (e) => {
+// 圖片／視頻海報時左右半區翻頁：左 50%＝上一張、右 50%＝下一張
+// （視頻播放中不攔截，留給原生控件）
+function halfNav(el) {
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const rect = el.getBoundingClientRect();
+    step(e.clientX - rect.left < rect.width / 2 ? -1 : 1);
+  });
+}
+halfNav(els.lbImg);
+halfNav(els.lbPoster);
+
+// 中間播放鍵：載入原檔並自動播放（被政策拒絕時退回原生控件手動播放）
+els.lbPlay.addEventListener("click", (e) => {
   e.stopPropagation();
-  const rect = els.lbImg.getBoundingClientRect();
-  step(e.clientX - rect.left < rect.width / 2 ? -1 : 1);
+  const item = pageItems[current];
+  if (!item || item.kind !== "video") return;
+  els.lbPoster.hidden = true;
+  els.lbPlay.hidden = true;
+  els.lbVideo.hidden = false;
+  els.lbVideo.src = mediaUrl(item.path);
+  els.lbVideo.play().catch(() => {});
 });
 
 // 手機左右滑動切換（橫向位移明顯大於縱向才觸發，避免誤判垂直捲動）
@@ -559,7 +685,8 @@ async function loadGallery() {
       setStatus(I18N.t("index.empty"), "ok");
       return;
     }
-    page = 1;
+    const savedPage = parseInt(sessionStorage.getItem(PAGE_KEY) || "1", 10);
+    page = Number.isFinite(savedPage) && savedPage > 0 ? savedPage : 1; // 返回時還原頁碼
     refresh();
   } catch (_) {
     setStatus(I18N.t("index.loadFail") + I18N.t("common.netRetry"), "err");

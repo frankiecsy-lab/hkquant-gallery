@@ -38,12 +38,14 @@
     </div>
   </div>
 
-  <!-- 全螢幕預覽（lightbox）：圖片時左半＝上一張、右半＝下一張；視頻用原生控件播放 -->
+  <!-- 全螢幕預覽（lightbox）：圖片／視頻未播放時左半＝上一張、右半＝下一張；視頻先見海報＋中間播放鍵 -->
   <div id="lightbox" class="lightbox" hidden aria-modal="true" role="dialog" aria-label="圖片預覽" data-i18n-aria="index.lightboxAria">
     <button type="button" class="lb-btn lb-close" id="lb-close" aria-label="關閉">&times;</button>
     <a id="lb-download" class="lb-btn lb-download" href="#" download aria-label="下載" title="下載" data-i18n-aria="index.download" hidden>&#11015;</a>
     <figure class="lb-figure">
       <img id="lb-img" alt="" class="lb-half-nav">
+      <img id="lb-video-poster" alt="" class="lb-half-nav" hidden>
+      <button type="button" id="lb-play" class="lb-play" aria-label="播放" data-i18n-aria="index.play" hidden>&#9654;</button>
       <video id="lb-video" controls playsinline hidden></video>
       <figcaption class="lb-caption">
         <span id="lb-name" class="lb-name"></span>

@@ -1,6 +1,25 @@
 # Changelog — hkquant-gallery
 
-## v1.3.0（2026-11-16）
+## v1.4.0（2026-11-16）
+- **視頻縮略圖＝瀏覽器端抽取第一格畫面**：隱藏 `<video>` seek 開首約 1 秒 →
+  canvas 最長邊 640 → JPEG dataURL 疊於瓦片（▶ 徽標保留於海報上）；併發 3、
+  12 秒超時、換頁作廢舊任務；瀏覽器解碼不了的格式自動維持 ▶ 瓦片，後端零改動
+- **設置頁訪客化（無需登入）**：語言／主頁內容／縮略圖資訊／排序改為**訪客個人設置**，
+  保存在本瀏覽器 Cookie（新端點 `GET/POST /api/prefs`，格式 `lang|dddd|by.desc`，1 年；
+  部分更新，非法 400）；`/api/gallery` 與 `/api/lang` 為 Cookie 優先、未設置回退全局
+  （服務器全局設置保留作默認值，`POST /api/settings/*` 仍僅管理員）；
+  「顯示資料夾」屬全局設置，僅管理員登入後在設置頁可見；
+  界面語言由「全站強制」改為「跟訪客 Cookie」
+- **返回主頁與頁碼還原**：設置頁「保存」面板改「返回主頁」按鈕；管理頁登出後自動跳回首頁；
+  首頁頁碼存 sessionStorage，返回時還原之前所見頁（越界自動夾到最後一頁）
+- **視頻 lightbox**：未播放前顯示第一格海報（重用瓦片抽取結果）＋中間大型播放鍵，
+  左右半區點擊照樣翻上／下一頁（與圖片一致）；按播放鍵才載入原生
+  `<video controls>` 播放（播放中點擊留給控件）
+- 管理模式「隱藏／刪除」按鈕底色改透明深灰；設置頁「顯示視頻（點擊可播放）」
+  精簡為「顯示視頻」
+- e2e 擴至 162 項（訪客 prefs 結構／Cookie 生效／非法值 400／全局不受害）
+
+## v1.3.0（2026-11-16，已部署 production）
 - **視頻支援**：scanner 加 `VIDEO_EXTS`（mp4/mov/m4v/webm/ogv/mkv/avi/wmv/flv/mpg/mpeg/
   mts/m2ts/ts/3gp/vob/divx/rm/rmvb/f4v 共 20 種）＋`MEDIA_EXTS`；entry 加 `kind`
   （image｜video，視頻 captured 取 mtime、不走 EXIF）；`display` 擴為四鍵
