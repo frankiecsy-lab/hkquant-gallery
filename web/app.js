@@ -1,68 +1,40 @@
 "use strict";
-// 圖庫首頁邏輯：讀取 /api/gallery 後以「資料夾篩選＋排序＋分頁」展示圖片，
-// 縮略圖走 /thumb（失敗回退 /media 原圖），卡片可疊加拍攝日期／檔名（設置頁控制）。
-// 管理員登入狀態下每張卡片附「隱藏／刪除（二次確認）」按鈕。
-// 篩選、排序、分頁為純前端行為，偏好持久化於 localStorage。
+// 圖庫首頁邏輯：讀取 /api/gallery 後按「設置頁全局配置」（資料夾可見性＋排序＋分頁）
+// 展示相片與視頻：相片縮略圖走 /thumb（失敗回退 /media），視頻顯示可播放占位瓦片。
+// 管理員登入狀態下每張卡片附「隱藏／刪除（二次確認）」按鈕（底部透明灰底、藍框／紅框）。
+// 頁腳由 /footer.js 全域統一生成；本頁載入資料後經 FooterKit.apply 復用。
 // 嚴格遵循 API 契約：fetch 一律 credentials:'same-origin'；path 未 encode，
 // 拼 URL 時逐段 encodeURIComponent；錯誤提示直接顯示後端 detail。
 
 const els = {
   title: document.getElementById("gallery-title"),
   status: document.getElementById("status"),
-  toolbar: document.getElementById("toolbar"),
-  folderChips: document.getElementById("folder-chips"),
-  sortName: document.getElementById("sort-name"),
-  sortTime: document.getElementById("sort-time"),
-  sortDir: document.getElementById("sort-dir"),
   gallery: document.getElementById("gallery"),
   pager: document.getElementById("pager"),
-  footSign: document.getElementById("foot-sign"),
-  footStats: document.getElementById("foot-stats"),
-  footFolders: document.getElementById("foot-folders"),
   lightbox: document.getElementById("lightbox"),
   lbImg: document.getElementById("lb-img"),
+  lbVideo: document.getElementById("lb-video"),
   lbName: document.getElementById("lb-name"),
   lbIndex: document.getElementById("lb-index"),
   lbClose: document.getElementById("lb-close"),
-  lbPrev: document.getElementById("lb-prev"),
-  lbNext: document.getElementById("lb-next"),
+  lbDl: document.getElementById("lb-download"),
   gate: document.getElementById("gate"),
   gateDots: document.getElementById("gate-dots"),
   gateMsg: document.getElementById("gate-msg"),
   gatePad: document.getElementById("gate-pad"),
 };
 
-const PREF_KEY = "hqgal…refs";
 const PAGE_SIZE = 60;
 
-// 使用者偏好：folder（""=全部；"（根目錄）"=根）、排序欄位與方向
-function loadPrefs() {
-  try {
-    const p = JSON.parse(localStorage.getItem(PREF_KEY));
-    if (p && typeof p === "object") {
-      return {
-        folder: typeof p.folder === "string" ? p.folder : "",
-        sortKey: p.sortKey === "name" ? "name" : "time",
-        sortDir: p.sortDir === "asc" ? "asc" : "desc",
-      };
-    }
-  } catch (_) { /* 忽略損壞的偏好 */ }
-  return { folder: "", sortKey: "time", sortDir: "desc" }; // 默認：全部＋時間反序（最新在前）
-}
-function savePrefs() {
-  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (_) {}
-}
-
-const prefs = loadPrefs();
-
-// 全量圖片清單（扁平化，含所屬 folder 與管理用 key/hidden）
+// 全量媒體清單（扁平化，含所屬 folder、kind 與管理用 key/hidden）
 let allItems = [];
 let folders = [];      // 來自 API 的資料夾清單（含可見計數）
-let items = [];        // 當前篩選＋排序結果（未分頁）
+let items = [];        // 排序後清單（未分頁）
 let pageItems = [];    // 當前頁可見清單（lightbox 序號來源）
 let page = 1;
 let isAdmin = false;
-let display = { date: true, name: true };
+let display = { date: false, name: false, photos: true, videos: true };
+let sortCfg = { by: "captured", desc: true }; // 全局排序（設置頁配置，服務端下發）
 let stats = null;
 let current = -1;
 
@@ -84,10 +56,10 @@ function api(url, options) {
   });
 }
 
-// 從後端回應取出可直接顯示的錯誤文字（契約格式 {"detail": "..."}）
+// 從後端回應取出可直接顯示的錯誤文字（契約格式 {"detail": "..."}，英文模式下映射常見訊息）
 function detailOf(data, status) {
-  if (data && typeof data.detail === "string" && data.detail) return data.detail;
-  return "請求失敗（HTTP " + status + "）";
+  if (data && typeof data.detail === "string" && data.detail) return I18N.detail(data.detail);
+  return I18N.t("common.httpFail", { status });
 }
 
 function setStatus(text, kind) {
@@ -104,64 +76,13 @@ function fmtBytes(n) {
   return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + " " + units[i];
 }
 
-// ---------- 工具列：資料夾膠囊與排序按鈕（同一行，高頻操作不用下拉） ----------
+// ---------- 排序＋分頁＋渲染（資料夾可見性與排序方式均由設置頁全局配置） ----------
 
-function chipLabel(name) {
-  return name === "（根目錄）" ? "根目錄" : name;
-}
-
-function buildFolderChips() {
-  els.folderChips.textContent = "";
-  const names = ["", ...folders.map((f) => f.name)];
-  for (const name of names) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "chip";
-    btn.textContent = name === "" ? "全部" : chipLabel(name);
-    btn.setAttribute("aria-pressed", String(prefs.folder === name));
-    if (prefs.folder === name) btn.classList.add("active");
-    btn.addEventListener("click", () => {
-      prefs.folder = name;
-      savePrefs();
-      page = 1;
-      refresh();
-    });
-    els.folderChips.appendChild(btn);
-  }
-}
-
-function syncSortButtons() {
-  els.sortName.classList.toggle("active", prefs.sortKey === "name");
-  els.sortTime.classList.toggle("active", prefs.sortKey === "time");
-  els.sortName.setAttribute("aria-pressed", String(prefs.sortKey === "name"));
-  els.sortTime.setAttribute("aria-pressed", String(prefs.sortKey === "time"));
-  els.sortDir.textContent = prefs.sortDir === "asc" ? "正序 ↑" : "反序 ↓";
-}
-
-function setSort(key) {
-  prefs.sortKey = key;
-  savePrefs();
-  page = 1;
-  refresh();
-}
-els.sortName.addEventListener("click", () => setSort("name"));
-els.sortTime.addEventListener("click", () => setSort("time"));
-els.sortDir.addEventListener("click", () => {
-  prefs.sortDir = prefs.sortDir === "asc" ? "desc" : "asc";
-  savePrefs();
-  page = 1;
-  refresh();
-});
-
-// ---------- 篩選＋排序＋分頁＋渲染 ----------
-
-function visibleItems() {
-  let list = prefs.folder === ""
-    ? allItems.slice()
-    : allItems.filter((i) => i.folder === prefs.folder);
-  const dir = prefs.sortDir === "asc" ? 1 : -1;
+function sortedItems() {
+  const list = allItems.slice();
+  const dir = sortCfg.desc ? -1 : 1;
   list.sort((a, b) => {
-    if (prefs.sortKey === "name") {
+    if (sortCfg.by === "name") {
       return a.name.localeCompare(b.name, "zh-Hant", { numeric: true, sensitivity: "base" }) * dir;
     }
     // 拍攝時間（captured）ISO 字串的字典序等同時間序；缺失時回退 mtime
@@ -174,59 +95,76 @@ function visibleItems() {
 }
 
 function refresh() {
-  buildFolderChips();
-  syncSortButtons();
-  items = visibleItems();
+  items = sortedItems();
   const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   if (page > totalPages) page = totalPages;
   pageItems = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   render(pageItems);
   renderPager(totalPages);
-  renderFooter();
 }
 
 function renderCard(img, flatIndex) {
   const card = document.createElement("figure");
-  card.className = "card" + (img.hidden ? " dim" : "");
+  card.className = "card" + (img.hidden ? " dim" : "") + (img.kind === "video" ? " card-video" : "");
   card.title = img.name || img.path;
 
-  const el = document.createElement("img");
-  el.loading = "lazy";
-  el.decoding = "async";
-  el.src = thumbUrl(img.path);
-  el.alt = img.name || "";
-  // 縮略圖生成失敗時回退原圖
-  el.addEventListener("error", () => {
-    if (!el.dataset.fallback) { el.dataset.fallback = "1"; el.src = mediaUrl(img.path); }
-  }, { once: true });
-  card.appendChild(el);
-
-  if (display.date) {
-    const badge = document.createElement("span");
-    badge.className = "card-date";
-    badge.textContent = (img.captured || img.mtime || "").slice(0, 10);
-    card.appendChild(badge);
+  if (img.kind === "video") {
+    // 視頻卡：黑底播放瓦片（服務端不生成視頻縮略圖），點擊開啟內嵌播放器
+    const tile = document.createElement("div");
+    tile.className = "video-tile";
+    tile.setAttribute("role", "img");
+    tile.setAttribute("aria-label", I18N.t("index.videoPrefix") + (img.name || img.path));
+    const icon = document.createElement("span");
+    icon.className = "video-icon";
+    icon.textContent = "▶";
+    tile.appendChild(icon);
+    card.appendChild(tile);
+  } else {
+    const el = document.createElement("img");
+    el.loading = "lazy";
+    el.decoding = "async";
+    el.src = thumbUrl(img.path);
+    el.alt = img.name || "";
+    // 縮略圖生成失敗時回退原圖
+    el.addEventListener("error", () => {
+      if (!el.dataset.fallback) { el.dataset.fallback = "1"; el.src = mediaUrl(img.path); }
+    }, { once: true });
+    card.appendChild(el);
   }
+
   if (img.hidden) {
     const tag = document.createElement("span");
     tag.className = "card-hidden-tag";
-    tag.textContent = "已隱藏";
+    tag.textContent = I18N.t("index.hidden");
     card.appendChild(tag);
   }
 
+  // 拍攝日期（含時分）與檔名同處圖片下方，分兩行水平置中，互不重疊
   const cap = document.createElement("figcaption");
-  cap.textContent = img.name || img.path;
-  if (!display.name) cap.hidden = true; // 仍保留於 DOM 供無障礙讀取
+  if (display.date) {
+    const d = document.createElement("span");
+    d.className = "card-date";
+    d.textContent = (img.captured || img.mtime || "").slice(0, 16).replace("T", " ");
+    cap.appendChild(d);
+  }
+  if (display.name) {
+    const n = document.createElement("span");
+    n.className = "card-name";
+    n.textContent = img.name || img.path;
+    cap.appendChild(n);
+  }
+  cap.hidden = !(display.date || display.name);
   card.appendChild(cap);
 
   if (isAdmin) {
+    card.classList.add("has-actions");
     const actions = document.createElement("div");
     actions.className = "card-actions";
 
     const hideBtn = document.createElement("button");
     hideBtn.type = "button";
     hideBtn.className = "card-btn";
-    hideBtn.textContent = img.hidden ? "顯示" : "隱藏";
+    hideBtn.textContent = img.hidden ? I18N.t("index.show") : I18N.t("index.hide");
     hideBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       toggleHide(img, hideBtn);
@@ -236,18 +174,18 @@ function renderCard(img, flatIndex) {
     const delBtn = document.createElement("button");
     delBtn.type = "button";
     delBtn.className = "card-btn card-btn-del";
-    delBtn.textContent = "刪除";
+    delBtn.textContent = I18N.t("index.del");
     let armed = false;
     let armTimer = 0;
     delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       if (!armed) {
         armed = true;
-        delBtn.textContent = "確定刪除？";
+        delBtn.textContent = I18N.t("index.confirmDel");
         delBtn.classList.add("armed");
         armTimer = setTimeout(() => {
           armed = false;
-          delBtn.textContent = "刪除";
+          delBtn.textContent = I18N.t("index.del");
           delBtn.classList.remove("armed");
         }, 3000);
         return;
@@ -267,7 +205,7 @@ function render(list) {
   els.gallery.textContent = "";
 
   if (list.length === 0) {
-    setStatus(allItems.length === 0 ? "圖庫暫時沒有圖片" : "此資料夾暫時沒有圖片", "ok");
+    setStatus(I18N.t("index.empty"), "ok");
     els.gallery.hidden = true;
     return;
   }
@@ -306,7 +244,7 @@ function renderPager(totalPages) {
     return btn;
   };
 
-  els.pager.appendChild(mkBtn("‹ 上頁", page - 1, page === 1, false));
+  els.pager.appendChild(mkBtn(I18N.t("index.prev"), page - 1, page === 1, false));
   // 頁碼窗口：首頁、末頁、當前頁 ±2，空位以省略號填補
   const shown = new Set([1, totalPages, page, page - 1, page + 1, page - 2, page + 2]);
   const nums = [...shown].filter((n) => n >= 1 && n <= totalPages).sort((a, b) => a - b);
@@ -321,38 +259,15 @@ function renderPager(totalPages) {
     els.pager.appendChild(mkBtn(String(n), n, false, n === page));
     prev = n;
   }
-  els.pager.appendChild(mkBtn("下頁 ›", page + 1, page === totalPages, false));
+  els.pager.appendChild(mkBtn(I18N.t("index.next"), page + 1, page === totalPages, false));
 }
 
-// ---------- 頁腳：統計與管理入口 ----------
+// ---------- 頁腳：委托 /footer.js 全域渲染，本页有資料時直接喂入 ----------
 
-function renderFooter() {
-  const year = (stats && stats.last_updated ? String(stats.last_updated).slice(0, 4) : "")
-    || String(new Date().getFullYear());
-  els.footSign.textContent = "Frankie Cheung · © " + year;
-
-  const visibleTotal = allItems.filter((i) => !i.hidden).length;
-  const parts = ["共 " + visibleTotal + " 張相"];
-  if (stats && stats.last_updated) {
-    parts.push("最後更新 " + String(stats.last_updated).replace("T", " ").slice(0, 16));
+function updateFooter() {
+  if (window.FooterKit) {
+    FooterKit.apply({ stats, folders, is_admin: isAdmin });
   }
-  if (stats && Number.isFinite(stats.limit) && stats.limit > 0) {
-    const pct = ((stats.used / stats.limit) * 100).toFixed(1);
-    parts.push("儲存 " + fmtBytes(stats.used) + "／" + fmtBytes(stats.limit) + "（" + pct + "%）");
-  }
-  if (stats && Number.isFinite(stats.online)) {
-    parts.push("在線 " + stats.online + " 人");
-  }
-  els.footStats.textContent = parts.join(" · ");
-  els.footStats.hidden = false;
-
-  const counts = new Map();
-  for (const i of allItems) {
-    if (!i.hidden) counts.set(i.folder, (counts.get(i.folder) || 0) + 1);
-  }
-  const segs = folders.map((f) => chipLabel(f.name) + "（" + (counts.get(f.name) || 0) + "）");
-  els.footFolders.textContent = segs.join(" · ");
-  els.footFolders.hidden = segs.length === 0;
 }
 
 // ---------- 管理端操作：隱藏／刪除 ----------
@@ -368,11 +283,12 @@ async function toggleHide(img, btn) {
     if (status === 200 && data && data.ok) {
       img.hidden = !img.hidden;
       refresh();
+      updateFooter();
     } else {
-      setStatus("操作失敗：" + detailOf(data, status), "err");
+      setStatus(I18N.t("common.opFail") + detailOf(data, status), "err");
     }
   } catch (_) {
-    setStatus("操作失敗：網絡錯誤", "err");
+    setStatus(I18N.t("common.opFail") + I18N.t("common.networkErr"), "err");
   } finally {
     btn.disabled = false;
   }
@@ -393,13 +309,14 @@ async function deletePhoto(img, card) {
                        images: f.images.filter((i) => i !== img) }))
         .filter((f) => f.count > 0);
       refresh();
+      if (window.FooterKit) FooterKit.refresh(); // 張數／儲存已變，向服務端重取
     } else {
       card.classList.remove("removing");
-      setStatus("刪除失敗：" + detailOf(data, status), "err");
+      setStatus(I18N.t("common.delFail") + detailOf(data, status), "err");
     }
   } catch (_) {
     card.classList.remove("removing");
-    setStatus("刪除失敗：網絡錯誤", "err");
+    setStatus(I18N.t("common.delFail") + I18N.t("common.networkErr"), "err");
   }
 }
 
@@ -415,6 +332,12 @@ function openLightbox(index) {
 function closeLightbox() {
   els.lightbox.hidden = true;
   els.lbImg.removeAttribute("src");
+  els.lbVideo.pause();
+  els.lbVideo.removeAttribute("src");
+  els.lbVideo.load(); // 釋放解碼資源
+  els.lbVideo.hidden = true;
+  els.lbImg.hidden = false;
+  els.lbDl.hidden = true;
   document.body.style.overflow = "";
   current = -1;
 }
@@ -422,12 +345,30 @@ function closeLightbox() {
 function showCurrent() {
   const item = pageItems[current];
   if (!item) return;
-  els.lbImg.src = mediaUrl(item.path); // 大圖直接載入原圖
-  els.lbImg.alt = item.name || "";
+  if (item.kind === "video") {
+    // 視頻：用原生 <video controls> 播放原檔；點擊不翻頁（留給控件）
+    els.lbImg.hidden = true;
+    els.lbImg.removeAttribute("src");
+    els.lbVideo.hidden = false;
+    els.lbVideo.src = mediaUrl(item.path);
+  } else {
+    els.lbVideo.pause();
+    els.lbVideo.removeAttribute("src");
+    els.lbVideo.load();
+    els.lbVideo.hidden = true;
+    els.lbImg.hidden = false;
+    els.lbImg.src = mediaUrl(item.path); // 大圖直接載入原圖
+    els.lbImg.alt = item.name || "";
+  }
   els.lbName.textContent = item.name || item.path;
+  // 下載按鈕：同檔原圖／原視頻，download 屬性保留原檔名
+  els.lbDl.href = mediaUrl(item.path);
+  els.lbDl.setAttribute("download", item.name || "");
+  els.lbDl.hidden = false;
   const when = String(item.captured || item.mtime || "").replace("T", " ").slice(0, 16);
   els.lbIndex.textContent = (when ? when + " · " : "")
-    + "第 " + (current + 1) + " / " + pageItems.length + " 張";
+    + (item.kind === "video" ? I18N.t("index.videoWord") + " · " : "")
+    + I18N.t("index.itemOf", { n: current + 1, total: pageItems.length });
 }
 
 function step(delta) {
@@ -444,14 +385,19 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowRight") step(1);
 });
 
-// 點擊背幕關閉（點在圖片或按鈕上不算背幕）
+// 點擊背幕關閉（點在媒體或按鈕上不算背幕）
 els.lightbox.addEventListener("click", (e) => {
   if (e.target === els.lightbox || e.target.classList.contains("lb-figure")) closeLightbox();
 });
 
 els.lbClose.addEventListener("click", closeLightbox);
-els.lbPrev.addEventListener("click", (e) => { e.stopPropagation(); step(-1); });
-els.lbNext.addEventListener("click", (e) => { e.stopPropagation(); step(1); });
+
+// 圖片時左右半區翻頁：左 50%＝上一張、右 50%＝下一張（視頻時不攔截，留給播放控件）
+els.lbImg.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const rect = els.lbImg.getBoundingClientRect();
+  step(e.clientX - rect.left < rect.width / 2 ? -1 : 1);
+});
 
 // 手機左右滑動切換（橫向位移明顯大於縱向才觸發，避免誤判垂直捲動）
 let touchX = 0;
@@ -494,9 +440,8 @@ function setGateMsg(text, kind) {
 function openGate() {
   gateCode = "";
   renderGateDots();
-  setGateMsg("請輸入查看密碼");
+  setGateMsg(I18N.t("gate.prompt"));
   setStatus("");
-  els.toolbar.hidden = true;
   els.gallery.hidden = true;
   els.pager.hidden = true;
   els.gate.hidden = false;
@@ -506,28 +451,31 @@ function closeGate() {
   els.gate.hidden = true;
 }
 
+// 數字鍵盤：功能鍵以內部代號（clear/back）處理，顯示文字隨語言渲染
 function buildPad() {
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "清空", "0", "⌫"];
+  els.gatePad.textContent = "";
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "back"];
   for (const key of keys) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "pad-key" + (key.length > 1 ? " pad-fn" : "");
-    btn.textContent = key;
+    const label = key === "clear" ? I18N.t("gate.clear") : key === "back" ? "⌫" : key;
+    btn.className = "pad-key" + (key === "clear" || key === "back" ? " pad-fn" : "");
+    btn.textContent = label;
     btn.addEventListener("click", () => pressKey(key));
     els.gatePad.appendChild(btn);
   }
   const ok = document.createElement("button");
   ok.type = "button";
   ok.className = "pad-key pad-ok";
-  ok.textContent = "確定";
+  ok.textContent = I18N.t("gate.ok");
   ok.addEventListener("click", () => submitGate());
   els.gatePad.appendChild(ok);
 }
 
 function pressKey(key) {
   setGateMsg("");
-  if (key === "清空") gateCode = "";
-  else if (key === "⌫") gateCode = gateCode.slice(0, -1);
+  if (key === "clear") gateCode = "";
+  else if (key === "back") gateCode = gateCode.slice(0, -1);
   else if (/^\d$/.test(key) && gateCode.length < CODE_MAX) gateCode += key;
   renderGateDots();
 }
@@ -535,7 +483,7 @@ function pressKey(key) {
 async function submitGate() {
   if (gateBusy) return;
   if (gateCode.length < 4) {
-    setGateMsg("密碼至少 4 位數字", "err");
+    setGateMsg(I18N.t("gate.short"), "err");
     return;
   }
   gateBusy = true;
@@ -554,7 +502,7 @@ async function submitGate() {
       renderGateDots();
     }
   } catch (_) {
-    setGateMsg("網絡錯誤，請稍後重試", "err");
+    setGateMsg(I18N.t("common.netRetry"), "err");
   } finally {
     gateBusy = false;
   }
@@ -564,14 +512,14 @@ async function submitGate() {
 document.addEventListener("keydown", (e) => {
   if (els.gate.hidden) return;
   if (/^\d$/.test(e.key)) pressKey(e.key);
-  else if (e.key === "Backspace") pressKey("⌫");
+  else if (e.key === "Backspace") pressKey("back");
   else if (e.key === "Enter") submitGate();
 });
 
 // ---------- 載入 ----------
 
 async function loadGallery() {
-  setStatus("載入中…");
+  setStatus(I18N.t("index.loading"));
   try {
     const { status, data } = await api("/api/gallery");
     if (status === 403) {
@@ -579,13 +527,14 @@ async function loadGallery() {
       return;
     }
     if (status !== 200 || !data) {
-      setStatus("載入圖庫失敗：" + detailOf(data, status), "err");
+      setStatus(I18N.t("index.loadFail") + detailOf(data, status), "err");
       return;
     }
     els.title.textContent = data.title || "HKQuant Gallery";
     document.title = els.title.textContent;
     isAdmin = Boolean(data.is_admin);
-    display = data.display || { date: true, name: true };
+    display = data.display || { date: false, name: false, photos: true, videos: true };
+    sortCfg = data.sort || { by: "captured", desc: true }; // 全局排序自設置頁下發
     stats = data.stats || null;
 
     folders = Array.isArray(data.folders) ? data.folders : [];
@@ -598,29 +547,34 @@ async function loadGallery() {
           name: img.name || img.path,
           mtime: img.mtime || "",
           captured: img.captured || img.mtime || "",
+          kind: img.kind === "video" ? "video" : "image",
           hidden: Boolean(img.hidden),
           folder: folder.name || "（根目錄）",
         });
       }
     }
 
+    updateFooter(); // 頁腳全域組件復用本份資料
     if (allItems.length === 0) {
-      setStatus("圖庫暫時沒有圖片", "ok");
-      renderFooter();
+      setStatus(I18N.t("index.empty"), "ok");
       return;
     }
-    // 偏好中的資料夾若已不存在（被改名或移除），退回「全部」
-    if (prefs.folder !== "" && !folders.some((f) => f.name === prefs.folder)) {
-      prefs.folder = "";
-      savePrefs();
-    }
     page = 1;
-    els.toolbar.hidden = false;
     refresh();
   } catch (_) {
-    setStatus("載入圖庫失敗：網絡錯誤，請稍後重試", "err");
+    setStatus(I18N.t("index.loadFail") + I18N.t("common.netRetry"), "err");
   }
 }
 
-buildPad();
-loadGallery();
+// 語言切換（設置頁保存後同頁廣播；跨頁靠重新載入）：鍵盤與已渲染內容即時跟隨
+document.addEventListener("i18n:lang", () => {
+  buildPad();
+  if (!els.gate.hidden) setGateMsg(I18N.t("gate.prompt"));
+  if (stats) updateFooter();
+  if (items.length) refresh();
+});
+
+I18N.init().then(() => {
+  buildPad();
+  loadGallery();
+});

@@ -1,6 +1,35 @@
 # Changelog — hkquant-gallery
 
-## v1.2.0（2026-11-16）
+## v1.3.0（2026-11-16）
+- **視頻支援**：scanner 加 `VIDEO_EXTS`（mp4/mov/m4v/webm/ogv/mkv/avi/wmv/flv/mpg/mpeg/
+  mts/m2ts/ts/3gp/vob/divx/rm/rmvb/f4v 共 20 種）＋`MEDIA_EXTS`；entry 加 `kind`
+  （image｜video，視頻 captured 取 mtime、不走 EXIF）；`display` 擴為四鍵
+  （date/name/photos/videos）；`/media` 原樣提供視頻，`/thumb` 對視頻回 404；
+  `delete_all` 改刪媒體白名單（相片＋視頻，RAW／文件保留）；後端不解碼視頻
+  （1.6G RAM 約束），前端視頻卡＝黑底 ▶ 播放瓦片、lightbox 用原生
+  `<video controls playsinline>` 播放（能否播放取決於瀏覽器原生解碼）
+- **設置全局化**：首頁移除工具列（資料夾膠囊／排序按鈕／localStorage 偏好全刪）；
+  新端點 `POST /api/settings/sort`（captured|time|name＋desc，time 歸一 captured，
+  非法 400）、`POST /api/settings/folders`（複選，null／空選／全選均歸一為全部可見）；
+  `GET /api/settings` 加 `sort`／`all_folders`／`visible_folders`，`GET /api/gallery`
+  加 `sort` 且資料夾可見性與相片／視頻開關在服務端過濾後才下發；
+  設置頁重組為四面板（主頁內容／縮略圖資訊／排序方式／顯示資料夾）全部自動保存
+- **lightbox**：移除上一張／下一張按鈕，圖片時點左半＝上一張、右半＝下一張
+  （clientX 對 image rect 判半區，視頻不攔截留給控件）；新增「⬇ 下載」按鈕
+  （`download` 屬性保留原檔名，視頻同樣可下載）
+- **FOOTER 全域化**：抽出 `/footer.js`（`window.FooterKit.apply/refresh`），
+  首頁／管理／設置三頁同款同步掛 body 最底，60 秒自動刷新，未過查看閘門靜默降級；
+  順序調整：統計→儲存→資料夾→署名→「管理」按鈕固定最底
+- 管理模式「隱藏／刪除」兩鍵底色改透明灰（保留藍框／紅框與二次確定）；
+  管理頁面板重排：主頁標題排第一
+- **雙語 UI（繁中／英文）**：新 `/i18n.js`（`window.I18N`：`t(key,vars)`／`detail()` 映射後端
+  常見錯誤／`setLang()` 廣播 `i18n:lang` 即時重渲染）；語言為服務端全局設置
+  （`GET /api/lang` 公開、`POST /api/settings/lang` 管理，默認 zh）；設置頁新增「界面語言」面板；
+  三頁靜態文案改 `data-i18n` 屬性、JS 動態文字全部走字典；數字鍵盤功能鍵改內部代號
+- e2e 擴至 153 項（MKV 識別／視頻 media 200／thumb 404／排序與資料夾端點／
+  內容開關雙向過濾／語言端點預設與校验）
+
+## v1.2.0（2026-11-16，已部署 production）
 - 拍攝時間：scanner 讀 EXIF DateTimeOriginal（回退 mtime）→ entry 加 `captured`，
   增量快取 `db/meta.json`（按 大小|mtime 指紋）；默認排序改用 captured 反序（最新在前）
 - 縮略圖：`GET /thumb/{path}`（Pillow、exif_transpose 擺正、draft 降採樣解碼控制
@@ -18,6 +47,10 @@
 - 設置頁 `/settings`＋`GET/POST /api/settings/display`：縮圖顯示拍攝日期／檔名全局開關
 - **docker-compose：`/srv/ftp` 掛載 ro→rw**（刪除功能需要；寫路徑僅經 /api/photo/delete*）
 - 管理頁按鈕全寬、登出紅底白字；e2e 擴至 124 項（含 delete_all 清空斷言）
+- 同日微調：日期／檔名顯示默認關閉；設置頁勾選即時自動保存；FOOTER 重排（儲存獨立一行、
+  「Frankie Cheung · © 年份」固定最底）；管理模式兩鍵移到圖片底部平分寬度、透明底、
+  藍框（隱藏）／紅框（刪除）；拍攝日期改含時分並與檔名分行水平置中（不再疊加於圖片上，
+  與操作按鈕零重疊）
 
 ## v1.1.0（2026-11-16，已部署 production）
 - 首頁改版：扁平網格＋資料夾膠囊篩選（默認全部）＋名稱/時間正/反序排序

@@ -64,10 +64,10 @@ function postJson(url, body) {
   });
 }
 
-// 從後端回應取出可直接顯示的錯誤文字（契約格式 {"detail": "..."}）
+// 從後端回應取出可直接顯示的錯誤文字（契約格式 {"detail": "..."}，英文模式下映射常見訊息）
 function detailOf(data, status) {
-  if (data && typeof data.detail === "string" && data.detail) return data.detail;
-  return "操作失敗（HTTP " + status + "）";
+  if (data && typeof data.detail === "string" && data.detail) return I18N.detail(data.detail);
+  return I18N.t("common.httpFail", { status });
 }
 
 function setMsg(el, text, kind) {
@@ -104,13 +104,17 @@ function showPanels(settings) {
 
 // 查看闸门当前状态（来自 GET／POST /api/settings、/api/settings/view）
 let viewEnabled = false;
+let viewHasCode = false;
+let lastSettings = null;   // 快取最近設定，語言切換時即時重渲染
+let lastStorage = null;
 
 // 將 GET／POST /api/settings/root 回傳的 root_label 與 title 顯示於面板
 function applySettings(settings) {
+  if (settings) lastSettings = settings;
   const label = settings && settings.root_label ? settings.root_label : "—";
-  els.rootCurrent.textContent = "當前圖庫資料夾：" + label;
+  els.rootCurrent.textContent = I18N.t("admin.rootCurrent") + label;
   if (settings && typeof settings.title === "string") {
-    els.titleCurrent.textContent = "當前標題：" + settings.title;
+    els.titleCurrent.textContent = I18N.t("admin.titleCurrent") + settings.title;
     if (!els.titleInput.value) els.titleInput.value = settings.title;
   }
   if (settings && typeof settings.view_enabled === "boolean") {
@@ -120,9 +124,15 @@ function applySettings(settings) {
 
 function updateViewPanel(enabled, hasCode) {
   viewEnabled = !!enabled;
-  els.viewCurrent.textContent = "當前台區：" + (viewEnabled ? "已啟用" : "未啟用") +
-    "（" + (hasCode ? "已設置數字密碼" : "尚未設置數字密碼") + "）";
-  els.viewToggle.textContent = viewEnabled ? "停用閘門" : "啟用閘門";
+  viewHasCode = !!hasCode;
+  if (lastSettings) {
+    lastSettings.view_enabled = viewEnabled;
+    lastSettings.view_has_code = viewHasCode;
+  }
+  els.viewCurrent.textContent = I18N.t("admin.viewCurrent")
+    + (viewEnabled ? I18N.t("admin.enabled") : I18N.t("admin.disabled"))
+    + " · " + (viewHasCode ? I18N.t("admin.hasCode") : I18N.t("admin.noCode"));
+  els.viewToggle.textContent = viewEnabled ? I18N.t("admin.disableGate") : I18N.t("admin.enableGate");
 }
 
 // 字节数转可读单位（B/KB/MB/GB/TB）
@@ -136,22 +146,30 @@ function fmtBytes(n) {
 
 // ---------- FTP 儲存容量 ----------
 
+function renderStorageText() {
+  if (!lastStorage) return;
+  const pct = Math.min(100, (lastStorage.used / lastStorage.limit) * 100);
+  els.storageText.textContent = I18N.t("admin.storageUsed", {
+    u: fmtBytes(lastStorage.used), l: fmtBytes(lastStorage.limit),
+    f: fmtBytes(lastStorage.free), p: pct.toFixed(1),
+  });
+}
+
 async function loadStorage() {
-  els.storageText.textContent = "讀取中…";
+  els.storageText.textContent = I18N.t("admin.reading");
   try {
     const { status, data } = await api("/api/storage");
     if (status === 200 && data && Number.isFinite(data.limit) && data.limit > 0) {
       const pct = Math.min(100, (data.used / data.limit) * 100);
       els.storageBar.style.width = pct.toFixed(1) + "%";
       els.storageBar.classList.toggle("warn", pct >= 80);
-      els.storageText.textContent = "已用 " + fmtBytes(data.used) +
-        " ／ 上限 " + fmtBytes(data.limit) + "（剩餘 " + fmtBytes(data.free) + "，" +
-        pct.toFixed(1) + "%）";
+      lastStorage = data;
+      renderStorageText();
     } else {
-      els.storageText.textContent = "容量讀取失敗：" + detailOf(data, status);
+      els.storageText.textContent = I18N.t("admin.storageFail") + detailOf(data, status);
     }
   } catch (_) {
-    els.storageText.textContent = "容量讀取失敗：網絡錯誤";
+    els.storageText.textContent = I18N.t("admin.storageFail") + I18N.t("common.networkErr");
   }
 }
 
@@ -174,7 +192,7 @@ els.loginForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const password = els.loginPassword.value;
   if (!password) {
-    setMsg(els.loginMsg, "請輸入密碼", "err");
+    setMsg(els.loginMsg, I18N.t("admin.pwNeed"), "err");
     return;
   }
   clearMsg(els.loginMsg);
@@ -201,7 +219,7 @@ els.rootForm.addEventListener("submit", (e) => {
     if (status === 200 && data && data.ok) {
       applySettings(data);
       els.rootInput.value = "";
-      setMsg(els.rootMsg, "已保存", "ok");
+      setMsg(els.rootMsg, I18N.t("common.saved"), "ok");
     } else if (status === 401) {
       showLogin();
     } else {
@@ -216,19 +234,20 @@ els.titleForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const title = els.titleInput.value.trim();
   if (!title) {
-    setMsg(els.titleMsg, "請輸入標題", "err");
+    setMsg(els.titleMsg, I18N.t("admin.titleNeed"), "err");
     return;
   }
   if (title.length > 80) {
-    setMsg(els.titleMsg, "標題最長 80 字", "err");
+    setMsg(els.titleMsg, I18N.t("admin.titleMax"), "err");
     return;
   }
   clearMsg(els.titleMsg);
   withBusy(els.titleSubmit, async () => {
     const { status, data } = await postJson("/api/settings/title", { title });
     if (status === 200 && data && data.ok) {
-      els.titleCurrent.textContent = "當前標題：" + data.title;
-      setMsg(els.titleMsg, "已保存", "ok");
+      els.titleCurrent.textContent = I18N.t("admin.titleCurrent") + data.title;
+      if (lastSettings) lastSettings.title = data.title;
+      setMsg(els.titleMsg, I18N.t("common.saved"), "ok");
     } else if (status === 401) {
       showLogin();
     } else {
@@ -244,11 +263,11 @@ els.viewForm.addEventListener("submit", (e) => {
   const code = els.viewCode.value.trim();
   const code2 = els.viewCode2.value.trim();
   if (!/^\d{4,12}$/.test(code)) {
-    setMsg(els.viewMsg, "密碼須為 4–12 位數字", "err");
+    setMsg(els.viewMsg, I18N.t("admin.codeFormat"), "err");
     return;
   }
   if (code !== code2) {
-    setMsg(els.viewMsg, "兩次輸入的密碼不一致", "err");
+    setMsg(els.viewMsg, I18N.t("admin.codeMismatch"), "err");
     return;
   }
   clearMsg(els.viewMsg);
@@ -259,7 +278,7 @@ els.viewForm.addEventListener("submit", (e) => {
       els.viewCode.value = "";
       els.viewCode2.value = "";
       updateViewPanel(data.view_enabled, data.view_has_code);
-      setMsg(els.viewMsg, "查看密碼已保存" + (viewEnabled ? "，新密碼即時生效" : ""), "ok");
+      setMsg(els.viewMsg, I18N.t("admin.codeSaved") + (viewEnabled ? I18N.t("admin.codeSavedNow") : ""), "ok");
     } else if (status === 401) {
       showLogin();
     } else {
@@ -274,7 +293,7 @@ els.viewToggle.addEventListener("click", () => {
     const { status, data } = await postJson("/api/settings/view", { enabled: !viewEnabled, code: "" });
     if (status === 200 && data && data.ok) {
       updateViewPanel(data.view_enabled, data.view_has_code);
-      setMsg(els.viewMsg, data.view_enabled ? "閘門已啟用，訪客需輸入數字密碼" : "閘門已停用", "ok");
+      setMsg(els.viewMsg, data.view_enabled ? I18N.t("admin.gateOnMsg") : I18N.t("admin.gateOffMsg"), "ok");
     } else if (status === 401) {
       showLogin();
     } else {
@@ -293,15 +312,15 @@ els.pwdForm.addEventListener("submit", (e) => {
 
   // 前端先行校驗：新密碼至少 8 個字符且兩次一致，通過才送出
   if (!oldPassword) {
-    setMsg(els.pwdMsg, "請輸入原密碼", "err");
+    setMsg(els.pwdMsg, I18N.t("admin.oldNeed"), "err");
     return;
   }
   if (newPassword.length < 8) {
-    setMsg(els.pwdMsg, "新密碼至少 8 個字符", "err");
+    setMsg(els.pwdMsg, I18N.t("admin.pwShort"), "err");
     return;
   }
   if (newPassword !== confirm) {
-    setMsg(els.pwdMsg, "兩次輸入的新密碼不一致", "err");
+    setMsg(els.pwdMsg, I18N.t("admin.pwMismatch"), "err");
     return;
   }
   clearMsg(els.pwdMsg);
@@ -314,7 +333,7 @@ els.pwdForm.addEventListener("submit", (e) => {
       els.pwdOld.value = "";
       els.pwdNew.value = "";
       els.pwdConfirm.value = "";
-      setMsg(els.pwdMsg, "密碼已更新", "ok");
+      setMsg(els.pwdMsg, I18N.t("admin.pwUpdated"), "ok");
     } else if (status === 401) {
       showLogin();
     } else {
@@ -335,7 +354,7 @@ els.deleteAllForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const password = els.deleteAllPw.value;
   if (!password) {
-    setMsg(els.deleteAllMsg, "請輸入管理密碼", "err");
+    setMsg(els.deleteAllMsg, I18N.t("admin.adminPwNeed"), "err");
     return;
   }
   clearMsg(els.deleteAllMsg);
@@ -344,7 +363,7 @@ els.deleteAllForm.addEventListener("submit", (e) => {
     if (status === 200 && data && data.ok) {
       els.deleteAllPw.value = "";
       els.deleteAllForm.hidden = true;
-      setMsg(els.deleteAllMsg, "已刪除 " + data.deleted + " 張圖片", "ok");
+      setMsg(els.deleteAllMsg, I18N.t("admin.deletedN", { n: data.deleted }), "ok");
       loadStorage();
     } else if (status === 401) {
       showLogin();
@@ -362,16 +381,24 @@ els.logoutBtn.addEventListener("click", () => {
     // 契約：後端恆回 {"ok":true}；即便異常也退回登入卡，避免卡死
     if (status === 200 || !data || data.ok) {
       showLogin();
-      setMsg(els.loginMsg, "已登出", "ok");
+      setMsg(els.loginMsg, I18N.t("admin.loggedOut"), "ok");
     } else {
       setMsg(els.logoutMsg, detailOf(data, status), "err");
     }
   });
 });
 
-// ---------- 初始化：先查 session 再決定顯示登入卡或面板 ----------
+// ---------- 語言切換：面板內動態文字（當前標題／台區／容量）即時重渲染 ----------
+
+document.addEventListener("i18n:lang", () => {
+  if (lastSettings) applySettings(lastSettings);
+  if (lastStorage) renderStorageText();
+});
+
+// ---------- 初始化：先取語言，再查 session 決定顯示登入卡或面板 ----------
 
 (async function init() {
+  await I18N.init();
   try {
     const { status, data } = await api("/api/session"); // 契約：恆 200 {"logged_in": bool}
     if (status === 200 && data && data.logged_in) {
@@ -381,6 +408,6 @@ els.logoutBtn.addEventListener("click", () => {
     }
   } catch (_) {
     showLogin();
-    setMsg(els.loginMsg, "網絡錯誤，請稍後重試", "err");
+    setMsg(els.loginMsg, I18N.t("common.netRetry"), "err");
   }
 })();

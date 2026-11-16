@@ -4,49 +4,105 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0f14">
-  <title>顯示設置 — HKQuant Gallery</title>
+  <title data-i18n="settings.pageTitle">顯示設置 — HKQuant Gallery</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <!-- 顶栏：返回圖庫 -->
   <header class="topbar">
     <div class="topbar-text">
-      <h1>顯示設置</h1>
-      <p class="subtitle">控制縮略圖上顯示的資訊（全局生效）</p>
+      <h1 data-i18n="settings.h1">顯示設置</h1>
+      <p class="subtitle" data-i18n="settings.subtitle">全局顯示與排序設置（對所有訪客生效）</p>
     </div>
-    <a class="admin-link" href="/">返回圖庫</a>
+    <a class="admin-link" href="/" data-i18n="common.back">返回圖庫</a>
   </header>
 
   <main class="page page-narrow">
     <!-- 未登入提示 -->
     <section id="need-login" class="panel" hidden>
-      <h2>需要管理員登入</h2>
-      <p class="hint">此頁面僅限管理員使用，請先前往管理頁登入。</p>
-      <a class="btn btn-primary btn-block" href="/admin">前往登入</a>
+      <h2 data-i18n="settings.needTitle">需要管理員登入</h2>
+      <p class="hint" data-i18n="settings.needHint">此頁面僅限管理員使用，請先前往管理頁登入。</p>
+      <a class="btn btn-primary btn-block" href="/admin" data-i18n="settings.goLogin">前往登入</a>
     </section>
 
-    <!-- 已登入：縮略圖顯示開關 -->
+    <!-- 已登入：全局設置（勾選即時自動保存） -->
     <div id="panels" hidden>
       <section class="panel">
-        <h2>縮略圖顯示</h2>
+        <h2 data-i18n="settings.langPanel">界面語言</h2>
+        <label class="check-row">
+          <input type="radio" name="ui-lang" id="lang-zh" checked>
+          <span>繁體中文</span>
+        </label>
+        <label class="check-row">
+          <input type="radio" name="ui-lang" id="lang-en">
+          <span>English</span>
+        </label>
+        <p class="hint" data-i18n="settings.langHint">網站介面語言（對所有訪客生效）；繁體中文／English。</p>
+      </section>
+
+      <section class="panel">
+        <h2 data-i18n="settings.contentPanel">主頁內容</h2>
+        <label class="check-row">
+          <input type="checkbox" id="opt-photos">
+          <span data-i18n="settings.showPhotos">顯示相片</span>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" id="opt-videos">
+          <span data-i18n="settings.showVideos">顯示視頻（點擊可播放）</span>
+        </label>
+        <p class="hint" id="content-hint"></p>
+      </section>
+
+      <section class="panel">
+        <h2 data-i18n="settings.thumbPanel">縮略圖資訊</h2>
         <label class="check-row">
           <input type="checkbox" id="opt-date">
-          <span>顯示拍攝日期（圖片左下角）</span>
+          <span data-i18n="settings.optDate">顯示拍攝日期（含時分，圖片下方置中）</span>
         </label>
         <label class="check-row">
           <input type="checkbox" id="opt-name">
-          <span>顯示檔案名稱（圖片下方）</span>
+          <span data-i18n="settings.optName">顯示檔案名稱（圖片下方置中）</span>
         </label>
-        <button type="button" class="btn btn-primary btn-block" id="save-btn">保存</button>
+      </section>
+
+      <section class="panel">
+        <h2 data-i18n="settings.sortPanel">排序方式</h2>
+        <label class="check-row">
+          <input type="radio" name="sort-by" id="sort-by-time" checked>
+          <span data-i18n="settings.sortTime">按拍攝時間</span>
+        </label>
+        <label class="check-row">
+          <input type="radio" name="sort-by" id="sort-by-name">
+          <span data-i18n="settings.sortName">按檔案名稱</span>
+        </label>
+        <label class="check-row">
+          <input type="radio" name="sort-dir" id="sort-desc" checked>
+          <span data-i18n="settings.sortDesc">反序（最新／Z→A 在前）</span>
+        </label>
+        <label class="check-row">
+          <input type="radio" name="sort-dir" id="sort-asc">
+          <span data-i18n="settings.sortAsc">正序（最舊／A→Z 在前）</span>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2 data-i18n="settings.foldersPanel">顯示資料夾</h2>
+        <p class="hint" data-i18n="settings.foldersHint">只顯示勾選的資料夾（對所有訪客生效）；全選＝全部可見。</p>
+        <div id="folder-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2 data-i18n="settings.savePanel">保存</h2>
+        <p class="hint" data-i18n="settings.saveHint">所有開關變更已即時自動保存，此按鈕僅供手動重試。</p>
+        <button type="button" class="btn btn-primary btn-block" id="save-btn" data-i18n="settings.saveAll">重新保存全部</button>
         <p id="save-msg" class="msg" role="status"></p>
       </section>
     </div>
   </main>
 
-  <footer class="footer">
-    <p class="foot-sign">Frankie Cheung</p>
-  </footer>
-
+  <!-- 頁腳由 /footer.js 全域統一生成 -->
+  <script src="/i18n.js"></script>
+  <script src="/footer.js"></script>
   <script src="/settings.js"></script>
 </body>
 </html>

@@ -54,8 +54,16 @@ class Store:
             "root": ".",
             "view_enabled": False,
             "hidden_photos": [],
-            "display_date": True,
-            "display_name": True,
+            "display_date": False,
+            "display_name": False,
+            "display_photos": True,
+            "display_videos": True,
+            # null＝全部資料夾可見；列表＝僅所列資料夾對所有人可見（管理頁複選）
+            "folders_visible": None,
+            "sort_by": "captured",
+            "sort_desc": True,
+            # 界面語言：zh＝繁體中文（默認）／en＝英文（全局，設置頁配置）
+            "lang": "zh",
         })
         self._auth = self._load(self._auth_file, {
             "password_hash": "",
@@ -165,14 +173,60 @@ class Store:
     def get_display(self) -> dict:
         with self._lock:
             return {
-                "date": bool(self._settings.get("display_date", True)),
-                "name": bool(self._settings.get("display_name", True)),
+                "date": bool(self._settings.get("display_date", False)),
+                "name": bool(self._settings.get("display_name", False)),
+                "photos": bool(self._settings.get("display_photos", True)),
+                "videos": bool(self._settings.get("display_videos", True)),
             }
 
-    def set_display(self, show_date: bool, show_name: bool) -> None:
+    def set_display(self, show_date: bool, show_name: bool,
+                    show_photos: bool = True, show_videos: bool = True) -> None:
         with self._lock:
             self._settings["display_date"] = bool(show_date)
             self._settings["display_name"] = bool(show_name)
+            self._settings["display_photos"] = bool(show_photos)
+            self._settings["display_videos"] = bool(show_videos)
+            self._save(self._settings_file, self._settings)
+
+    # ---------- 资料夹可见性（管理页全局复选；None＝全部可见） ----------
+
+    def get_visible_folders(self):
+        with self._lock:
+            value = self._settings.get("folders_visible", None)
+            return None if value is None else sorted(set(value))
+
+    def set_visible_folders(self, folders) -> None:
+        """folders=None 恢复全部可见；列表则仅所列资料夹对所有人可见。"""
+        with self._lock:
+            self._settings["folders_visible"] = (
+                None if folders is None else sorted(set(folders)))
+            self._save(self._settings_file, self._settings)
+
+    # ---------- 全局排序（设置页统一配置，首页按此显示） ----------
+
+    def get_sort(self) -> dict:
+        with self._lock:
+            return {
+                "by": self._settings.get("sort_by", "captured"),
+                "desc": bool(self._settings.get("sort_desc", True)),
+            }
+
+    def set_sort(self, by: str, desc: bool) -> None:
+        with self._lock:
+            self._settings["sort_by"] = by
+            self._settings["sort_desc"] = bool(desc)
+            self._save(self._settings_file, self._settings)
+
+    # ---------- 界面語言（全局，默認繁體中文） ----------
+
+    def get_lang(self) -> str:
+        with self._lock:
+            lang = self._settings.get("lang", "zh")
+            return lang if lang in ("zh", "en") else "zh"
+
+    def set_lang(self, lang: str) -> None:
+        with self._lock:
+            self._settings["lang"] = lang
             self._save(self._settings_file, self._settings)
 
     # ---------- 密码 ----------

@@ -73,7 +73,7 @@ def resolve_media(rel_path: str) -> Path:
         raise HTTPException(status_code=404, detail="找不到圖片")
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="找不到圖片")
-    if candidate.suffix.lower() not in scanner.IMAGE_EXTS:
+    if candidate.suffix.lower() not in scanner.MEDIA_EXTS:
         raise HTTPException(status_code=404, detail="找不到圖片")
     return candidate
 
@@ -114,6 +114,21 @@ class ViewSettingBody(BaseModel):
 class DisplayBody(BaseModel):
     date: bool
     name: bool
+    photos: bool = True
+    videos: bool = True
+
+
+class SortBody(BaseModel):
+    by: str = Field(min_length=1, max_length=16)   # "captured"|"time" 或 "name"
+    desc: bool
+
+
+class FoldersBody(BaseModel):
+    folders: list[str] | None = None               # null＝全部可见
+
+
+class LangBody(BaseModel):
+    lang: str = Field(min_length=2, max_length=8)  # "zh"|"en"
 
 
 class HideBody(BaseModel):
@@ -247,14 +262,22 @@ def gallery(request: Request):
         gallery_root = config.FTP_ROOT
         rel = "."
     raw_folders, truncated = scanner.scan(gallery_root)
+    display = store.get_display()
+    visible_folders = store.get_visible_folders()  # None＝全部可见（管理页复选）
 
     # 隐藏照片：公众完全不可见；管理端可见但带 hidden 标记（前端变暗）
     folders = []
     visible_total = 0
     last_updated = ""
     for folder in raw_folders:
+        if visible_folders is not None and folder["name"] not in visible_folders:
+            continue
         images = []
         for img in folder["images"]:
+            if img["kind"] == "video" and not display["videos"]:
+                continue
+            if img["kind"] != "video" and not display["photos"]:
+                continue
             is_hidden = img["key"] in hidden
             if is_hidden and not is_admin:
                 continue
@@ -278,7 +301,8 @@ def gallery(request: Request):
         "root_label": root_label(rel),
         "folders": folders,
         "is_admin": is_admin,
-        "display": store.get_display(),
+        "display": display,
+        "sort": store.get_sort(),
         "stats": {
             "total": visible_total,
             "last_updated": last_updated,
@@ -333,6 +357,8 @@ def _make_thumb(path: Path, out: Path) -> bool:
 def thumb(rel_path: str, request: Request):
     require_view(request)
     path = resolve_media(rel_path)
+    if path.suffix.lower() in scanner.VIDEO_EXTS:
+        raise HTTPException(status_code=404, detail="視頻無縮略圖")  # 前端用占位瓦片
     _touch_presence(request)
     stat = path.stat()
     stamp = hashlib.sha1(
@@ -372,6 +398,20 @@ def session_state(request: Request):
     return {"logged_in": store.check_session(request.cookies.get(config.COOKIE_NAME))}
 
 
+def _all_folder_names() -> list[str]:
+    """当前图库根下有内容的资料夹显示名（供设置页复选）。"""
+    try:
+        rel = store.get_root()
+        gallery_root = resolve_root(rel)
+    except HTTPException:
+        return []
+    try:
+        raw_folders, _ = scanner.scan(gallery_root)
+    except OSError:
+        return []
+    return [f["name"] for f in raw_folders]
+
+
 @app.get("/api/settings", dependencies=[Depends(require_login)])
 def get_settings():
     rel = store.get_root()
@@ -379,7 +419,11 @@ def get_settings():
             "title": store.get_title() or config.SITE_TITLE,
             "view_enabled": store.get_view_enabled(),
             "view_has_code": store.has_view_password(),
-            "display": store.get_display()}
+            "display": store.get_display(),
+            "sort": store.get_sort(),
+            "lang": store.get_lang(),
+            "all_folders": _all_folder_names(),
+            "visible_folders": store.get_visible_folders()}
 
 
 @app.post("/api/settings/view", dependencies=[Depends(require_login)])
@@ -409,9 +453,45 @@ def set_title(body: TitleBody):
 
 @app.post("/api/settings/display", dependencies=[Depends(require_login)])
 def set_display_ep(body: DisplayBody):
-    """缩略图显示开关（拍摄日期／档案名称），全局生效于首页。"""
-    store.set_display(body.date, body.name)
+    """缩略图显示开关（拍摄日期／档案名称／相片／视频），全局生效于首页。"""
+    store.set_display(body.date, body.name, body.photos, body.videos)
     return {"ok": True, "display": store.get_display()}
+
+
+@app.post("/api/settings/sort", dependencies=[Depends(require_login)])
+def set_sort_ep(body: SortBody):
+    """全局排序设置：by=captured|time|name，desc=是否倒序（最新/A→Z 在前）。"""
+    by = body.by.strip().lower()
+    if by == "time":
+        by = "captured"
+    if by not in ("captured", "name"):
+        raise HTTPException(status_code=400, detail="排序方式不合法")
+    store.set_sort(by, body.desc)
+    return {"ok": True, "sort": store.get_sort()}
+
+
+@app.post("/api/settings/folders", dependencies=[Depends(require_login)])
+def set_folders_ep(body: FoldersBody):
+    """资料夹可见性（全局复选）：folders=null 恢复全部可见。"""
+    if body.folders is None:
+        store.set_visible_folders(None)
+        return {"ok": True, "visible_folders": None}
+    names = [f.strip() for f in body.folders if f.strip()]
+    if set(names) == set(_all_folder_names()) or not names:
+        store.set_visible_folders(None)  # 全选等同全部可见
+        return {"ok": True, "visible_folders": None}
+    store.set_visible_folders(names)
+    return {"ok": True, "visible_folders": store.get_visible_folders()}
+
+
+@app.post("/api/settings/lang", dependencies=[Depends(require_login)])
+def set_lang_ep(body: LangBody):
+    """界面語言（全局）：zh＝繁體中文（默認）／en＝英文。"""
+    lang = body.lang.strip().lower()
+    if lang not in ("zh", "en"):
+        raise HTTPException(status_code=400, detail="語言選項不合法")
+    store.set_lang(lang)
+    return {"ok": True, "lang": lang}
 
 
 # ---------- 照片管理（隐藏／删除；key = 相对 FTP 根的 posix 路径） ----------
@@ -435,7 +515,7 @@ def _resolve_photo(key: str) -> tuple[Path, str]:
     target = _resolve_ftp_key(key)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="找不到圖片")
-    if target.suffix.lower() not in scanner.IMAGE_EXTS:
+    if target.suffix.lower() not in scanner.MEDIA_EXTS:
         raise HTTPException(status_code=400, detail="不支援的檔案類型")
     return target, target.relative_to(config.FTP_ROOT).as_posix()
 
@@ -465,9 +545,9 @@ def photo_delete(body: DeleteBody):
 
 @app.post("/api/photo/delete_all", dependencies=[Depends(require_login)])
 def photo_delete_all(body: DeleteAllBody):
-    """一键删除当前图库文件夹内全部图片（含隐藏）；需管理密码二次确认。
+    """一键删除当前图库文件夹内全部相片与视频（含隐藏）；需管理密码二次确认。
 
-    仅删除白名单图片扩展名文件，非图片（原始 RAW/视频等）一律保留。
+    仅删除白名单媒体扩展名（图片＋视频），原始 RAW／文档等一律保留。
     """
     if not store.verify_password(body.password):
         raise HTTPException(status_code=403, detail="管理密碼錯誤")
@@ -477,7 +557,7 @@ def photo_delete_all(body: DeleteAllBody):
     deleted = 0
     for path in list(root.rglob("*")):
         try:
-            if not path.is_file() or path.suffix.lower() not in scanner.IMAGE_EXTS:
+            if not path.is_file() or path.suffix.lower() not in scanner.MEDIA_EXTS:
                 continue
             rel = path.relative_to(root)
             if any(part.startswith(".") for part in rel.parts):
@@ -498,6 +578,12 @@ def photo_delete_all(body: DeleteAllBody):
 
 
 # ---------- 查看密码（首页闸门） ----------
+
+@app.get("/api/lang")
+def get_lang_ep():
+    """公开界面語言（前端 i18n.js 启动时读取）。"""
+    return {"lang": store.get_lang()}
+
 
 @app.get("/api/view/state")
 def view_state():
@@ -602,3 +688,15 @@ def admin_js():
 @app.get("/settings.js")
 def settings_js():
     return _serve_script("settings.js")
+
+
+@app.get("/footer.js")
+def footer_js():
+    """全站共用頁腳腳本（首頁／管理／設置同款同步）。"""
+    return _serve_script("footer.js")
+
+
+@app.get("/i18n.js")
+def i18n_js():
+    """全站雙語文案組件（繁體中文／英文，語言由設置頁全局配置）。"""
+    return _serve_script("i18n.js")

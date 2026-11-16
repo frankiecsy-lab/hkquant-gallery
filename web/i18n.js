@@ -1,0 +1,342 @@
+"use strict";
+// 全站雙語文案組件（繁體中文／英文）。語言為服務端全局設置（默認 zh）：
+// 啟動讀 GET /api/lang，渲染時套用 [data-i18n]／[data-i18n-ph]／[data-i18n-aria]；
+// 設置頁改語言後廣播 "i18n:lang" 事件，各頁動態文字即時重渲染。
+// 後端 {"detail"} 錯誤訊息經 detail() 映射（未收錄者原樣顯示）。
+
+window.I18N = (function () {
+  const DICT = {
+    zh: {
+      // 通用
+      "common.saved": "已保存",
+      "common.networkErr": "網絡錯誤",
+      "common.httpFail": "請求失敗（HTTP {status}）",
+      "common.opFail": "操作失敗：",
+      "common.delFail": "刪除失敗：",
+      "common.netRetry": "網絡錯誤，請稍後重試",
+      "common.back": "返回圖庫",
+      // 首頁
+      "index.settings": "設置",
+      "index.loading": "載入中…",
+      "index.loadFail": "載入圖庫失敗：",
+      "index.empty": "圖庫暫時沒有可顯示的內容",
+      "index.prev": "‹ 上頁",
+      "index.next": "下頁 ›",
+      "index.pagerAria": "分頁",
+      "index.lightboxAria": "圖片預覽",
+      "index.download": "下載",
+      "index.videoPrefix": "視頻：",
+      "index.videoWord": "視頻",
+      "index.itemOf": "第 {n} / {total} 項",
+      "index.hidden": "已隱藏",
+      "index.hide": "隱藏",
+      "index.show": "顯示",
+      "index.del": "刪除",
+      "index.confirmDel": "確定刪除？",
+      // 查看密碼閘卡
+      "gate.title": "查看密碼",
+      "gate.prompt": "請輸入查看密碼",
+      "gate.short": "密碼至少 4 位數字",
+      "gate.clear": "清空",
+      "gate.ok": "確定",
+      // 頁腳
+      "footer.stats": "共 {n} 張相",
+      "footer.updated": "最後更新 {t}",
+      "footer.online": "在線 {n} 人",
+      "footer.storage": "儲存 {u}／{l}（{p}%）",
+      "footer.root": "根目錄",
+      "footer.admin": "管理",
+      // 管理頁
+      "admin.pageTitle": "管理 — HKQuant Gallery",
+      "admin.h1": "圖庫管理",
+      "admin.login": "登入",
+      "admin.password": "密碼",
+      "admin.pwNeed": "請輸入密碼",
+      "admin.titlePanel": "主頁標題",
+      "admin.titleCurrent": "當前標題：",
+      "admin.titleLabel": "標題（1–80 字，顯示於圖庫首頁頂欄）",
+      "admin.saveTitle": "保存標題",
+      "admin.titleNeed": "請輸入標題",
+      "admin.titleMax": "標題最長 80 字",
+      "admin.rootPanel": "圖庫資料夾",
+      "admin.rootCurrent": "當前圖庫資料夾：",
+      "admin.rootLabel": "資料夾路徑（相對 FTP 根目錄）",
+      "admin.rootPh": ".（FTP 根目錄）",
+      "admin.save": "保存",
+      "admin.storagePanel": "FTP 儲存容量",
+      "admin.reading": "讀取中…",
+      "admin.storageUsed": "已用 {u} ／ 上限 {l}（剩餘 {f}，{p}%）",
+      "admin.storageFail": "容量讀取失敗：",
+      "admin.viewPanel": "查看密碼",
+      "admin.viewCurrent": "當前台區：",
+      "admin.enabled": "已啟用",
+      "admin.disabled": "未啟用",
+      "admin.hasCode": "已設置數字密碼",
+      "admin.noCode": "尚未設置數字密碼",
+      "admin.viewLabel": "數字密碼（4–12 位，訪客於首頁用數字鍵盤輸入）",
+      "admin.codePh": "例如 246810",
+      "admin.confirmCode": "確認密碼",
+      "admin.codePh2": "再輸入一次",
+      "admin.saveCode": "保存密碼",
+      "admin.enableGate": "啟用閘門",
+      "admin.disableGate": "停用閘門",
+      "admin.codeFormat": "密碼須為 4–12 位數字",
+      "admin.codeMismatch": "兩次輸入的密碼不一致",
+      "admin.codeSaved": "查看密碼已保存",
+      "admin.codeSavedNow": "，新密碼即時生效",
+      "admin.gateOnMsg": "閘門已啟用，訪客需輸入數字密碼",
+      "admin.gateOffMsg": "閘門已停用",
+      "admin.pwdPanel": "修改密碼",
+      "admin.oldPw": "原密碼",
+      "admin.newPw": "新密碼（至少 8 個字符）",
+      "admin.confirmPw": "確認新密碼",
+      "admin.updatePw": "更新密碼",
+      "admin.oldNeed": "請輸入原密碼",
+      "admin.pwShort": "新密碼至少 8 個字符",
+      "admin.pwMismatch": "兩次輸入的新密碼不一致",
+      "admin.pwUpdated": "密碼已更新",
+      "admin.dangerPanel": "危險區域",
+      "admin.dangerHint": "一鍵刪除當前圖庫資料夾內全部相片與視頻（含已隱藏；非媒體檔案保留）。此操作無法還原。",
+      "admin.dangerBtn": "一鍵全部刪除",
+      "admin.dangerPwLabel": "管理密碼（二次確認）",
+      "admin.dangerConfirm": "確認刪除全部媒體",
+      "admin.deletedN": "已刪除 {n} 項",
+      "admin.adminPwNeed": "請輸入管理密碼",
+      "admin.logoutPanel": "登出",
+      "admin.logoutHint": "結束當前管理工作階段。",
+      "admin.logout": "登出",
+      "admin.loggedOut": "已登出",
+      // 設置頁
+      "settings.pageTitle": "顯示設置 — HKQuant Gallery",
+      "settings.h1": "顯示設置",
+      "settings.subtitle": "全局顯示與排序設置（對所有訪客生效）",
+      "settings.needTitle": "需要管理員登入",
+      "settings.needHint": "此頁面僅限管理員使用，請先前往管理頁登入。",
+      "settings.goLogin": "前往登入",
+      "settings.contentPanel": "主頁內容",
+      "settings.showPhotos": "顯示相片",
+      "settings.showVideos": "顯示視頻（點擊可播放）",
+      "settings.bothOff": "注意：相片與視頻均已隱藏，主頁會顯示空圖庫",
+      "settings.thumbPanel": "縮略圖資訊",
+      "settings.optDate": "顯示拍攝日期（含時分，圖片下方置中）",
+      "settings.optName": "顯示檔案名稱（圖片下方置中）",
+      "settings.sortPanel": "排序方式",
+      "settings.sortTime": "按拍攝時間",
+      "settings.sortName": "按檔案名稱",
+      "settings.sortDesc": "反序（最新／Z→A 在前）",
+      "settings.sortAsc": "正序（最舊／A→Z 在前）",
+      "settings.sortSaved": "排序方式已自動保存",
+      "settings.foldersPanel": "顯示資料夾",
+      "settings.foldersHint": "只顯示勾選的資料夾（對所有訪客生效）；全選＝全部可見。",
+      "settings.noFolders": "（目前圖庫沒有可顯示的資料夾）",
+      "settings.foldersSaved": "資料夾顯示已自動保存",
+      "settings.foldersNone": "至少要顯示一個資料夾，已恢復全部可見",
+      "settings.langPanel": "界面語言",
+      "settings.langHint": "網站介面語言（對所有訪客生效）；繁體中文／English。",
+      "settings.langZh": "繁體中文",
+      "settings.langEn": "English",
+      "settings.langSaved": "語言已自動保存",
+      "settings.savePanel": "保存",
+      "settings.saveHint": "所有開關變更已即時自動保存，此按鈕僅供手動重試。",
+      "settings.saveAll": "重新保存全部",
+      "settings.displaySaved": "內容設置已自動保存，主頁即時生效",
+    },
+    en: {
+      "common.saved": "Saved",
+      "common.networkErr": "Network error",
+      "common.httpFail": "Request failed (HTTP {status})",
+      "common.opFail": "Operation failed: ",
+      "common.delFail": "Delete failed: ",
+      "common.netRetry": "Network error, please try again later",
+      "common.back": "Back to Gallery",
+      "index.settings": "Settings",
+      "index.loading": "Loading…",
+      "index.loadFail": "Failed to load gallery: ",
+      "index.empty": "The gallery has nothing to display right now",
+      "index.prev": "‹ Prev",
+      "index.next": "Next ›",
+      "index.pagerAria": "Pagination",
+      "index.lightboxAria": "Media preview",
+      "index.download": "Download",
+      "index.videoPrefix": "Video: ",
+      "index.videoWord": "Video",
+      "index.itemOf": "Item {n} / {total}",
+      "index.hidden": "Hidden",
+      "index.hide": "Hide",
+      "index.show": "Show",
+      "index.del": "Delete",
+      "index.confirmDel": "Delete for real?",
+      "gate.title": "View Password",
+      "gate.prompt": "Please enter the view password",
+      "gate.short": "Password needs at least 4 digits",
+      "gate.clear": "Clear",
+      "gate.ok": "OK",
+      "footer.stats": "{n} items",
+      "footer.updated": "Updated {t}",
+      "footer.online": "{n} online",
+      "footer.storage": "Storage {u} / {l} ({p}%)",
+      "footer.root": "Root",
+      "footer.admin": "Admin",
+      "admin.pageTitle": "Admin — HKQuant Gallery",
+      "admin.h1": "Gallery Admin",
+      "admin.login": "Sign In",
+      "admin.password": "Password",
+      "admin.pwNeed": "Please enter the password",
+      "admin.titlePanel": "Page Title",
+      "admin.titleCurrent": "Current title: ",
+      "admin.titleLabel": "Title (1–80 chars, shown in the gallery header)",
+      "admin.saveTitle": "Save Title",
+      "admin.titleNeed": "Please enter a title",
+      "admin.titleMax": "Title is at most 80 characters",
+      "admin.rootPanel": "Gallery Folder",
+      "admin.rootCurrent": "Current gallery folder: ",
+      "admin.rootLabel": "Folder path (relative to FTP root)",
+      "admin.rootPh": ". (FTP root)",
+      "admin.save": "Save",
+      "admin.storagePanel": "FTP Storage",
+      "admin.reading": "Loading…",
+      "admin.storageUsed": "Used {u} / limit {l} ({f} left, {p}%)",
+      "admin.storageFail": "Storage read failed: ",
+      "admin.viewPanel": "View Password",
+      "admin.viewCurrent": "Gate status: ",
+      "admin.enabled": "enabled",
+      "admin.disabled": "disabled",
+      "admin.hasCode": "numeric password set",
+      "admin.noCode": "no numeric password yet",
+      "admin.viewLabel": "Numeric password (4–12 digits, visitors type it on an on-screen keypad)",
+      "admin.codePh": "e.g. 246810",
+      "admin.confirmCode": "Confirm password",
+      "admin.codePh2": "Enter it again",
+      "admin.saveCode": "Save Password",
+      "admin.enableGate": "Enable Gate",
+      "admin.disableGate": "Disable Gate",
+      "admin.codeFormat": "Password must be 4–12 digits",
+      "admin.codeMismatch": "The two passwords do not match",
+      "admin.codeSaved": "View password saved",
+      "admin.codeSavedNow": " — new password is active immediately",
+      "admin.gateOnMsg": "Gate enabled — visitors must enter the numeric password",
+      "admin.gateOffMsg": "Gate disabled",
+      "admin.pwdPanel": "Change Password",
+      "admin.oldPw": "Old password",
+      "admin.newPw": "New password (at least 8 characters)",
+      "admin.confirmPw": "Confirm new password",
+      "admin.updatePw": "Update Password",
+      "admin.oldNeed": "Please enter the old password",
+      "admin.pwShort": "New password must be at least 8 characters",
+      "admin.pwMismatch": "The two new passwords do not match",
+      "admin.pwUpdated": "Password updated",
+      "admin.dangerPanel": "Danger Zone",
+      "admin.dangerHint": "One click deletes ALL photos and videos in the current gallery folder (including hidden ones; non-media files are kept). This cannot be undone.",
+      "admin.dangerBtn": "Delete Everything",
+      "admin.dangerPwLabel": "Admin password (confirmation)",
+      "admin.dangerConfirm": "Confirm: delete all media",
+      "admin.deletedN": "Deleted {n} items",
+      "admin.adminPwNeed": "Please enter the admin password",
+      "admin.logoutPanel": "Sign Out",
+      "admin.logoutHint": "End the current admin session.",
+      "admin.logout": "Sign Out",
+      "admin.loggedOut": "Signed out",
+      "settings.pageTitle": "Display Settings — HKQuant Gallery",
+      "settings.h1": "Display Settings",
+      "settings.subtitle": "Global display and sort settings (applies to all visitors)",
+      "settings.needTitle": "Admin sign-in required",
+      "settings.needHint": "This page is for admins only — please sign in on the admin page first.",
+      "settings.goLogin": "Go to sign in",
+      "settings.contentPanel": "Home Content",
+      "settings.showPhotos": "Show photos",
+      "settings.showVideos": "Show videos (click to play)",
+      "settings.bothOff": "Note: both photos and videos are hidden — the home page will be empty",
+      "settings.thumbPanel": "Thumbnail Info",
+      "settings.optDate": "Show capture date (with time, centered below the image)",
+      "settings.optName": "Show file name (centered below the image)",
+      "settings.sortPanel": "Sort Order",
+      "settings.sortTime": "By capture time",
+      "settings.sortName": "By file name",
+      "settings.sortDesc": "Descending (newest / Z→A first)",
+      "settings.sortAsc": "Ascending (oldest / A→Z first)",
+      "settings.sortSaved": "Sort order saved automatically",
+      "settings.foldersPanel": "Visible Folders",
+      "settings.foldersHint": "Only checked folders are shown (to all visitors); all checked = all visible.",
+      "settings.noFolders": "(No folders with displayable content right now)",
+      "settings.foldersSaved": "Folder visibility saved automatically",
+      "settings.foldersNone": "At least one folder must stay visible — restored all",
+      "settings.langPanel": "Language",
+      "settings.langHint": "Site interface language for all visitors; 繁體中文／English.",
+      "settings.langZh": "繁體中文",
+      "settings.langEn": "English",
+      "settings.langSaved": "Language saved automatically",
+      "settings.savePanel": "Save",
+      "settings.saveHint": "All changes are saved automatically; this button is only a manual retry.",
+      "settings.saveAll": "Re-save All",
+      "settings.displaySaved": "Content settings saved — home page updated",
+    },
+  };
+
+  // 後端常見 detail 訊息映射（僅 lang=en 時套用，未收錄者原樣顯示）
+  const DETAIL_EN = {
+    "請先登入": "Please sign in first",
+    "密碼錯誤": "Incorrect password",
+    "嘗試過多，請稍後再試": "Too many attempts — please try again later",
+    "請輸入查看密碼": "View password required",
+    "查看密碼須為 4–12 位數字": "View password must be 4–12 digits",
+    "請先設置查看密碼": "Set a view password first",
+    "管理密碼錯誤": "Incorrect admin password",
+    "標題不能為空": "Title cannot be empty",
+    "原密碼錯誤": "Old password is incorrect",
+    "新密碼至少 8 個字符": "New password must be at least 8 characters",
+    "排序方式不合法": "Invalid sort option",
+    "語言選項不合法": "Invalid language option",
+  };
+
+  let lang = "zh";
+  let boot = null;
+
+  function t(key, vars) {
+    let s = (DICT[lang] && DICT[lang][key]) || DICT.zh[key] || key;
+    if (vars) {
+      for (const k in vars) s = s.split("{" + k + "}").join(String(vars[k]));
+    }
+    return s;
+  }
+
+  function detail(zh) {
+    if (lang === "en" && DETAIL_EN[zh]) return DETAIL_EN[zh];
+    return zh;
+  }
+
+  // 套用靜態 DOM：data-i18n（文字）／data-i18n-ph（placeholder）／data-i18n-aria（aria-label＋title）
+  function applyDom(root) {
+    const scope = root || document;
+    scope.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.getAttribute("data-i18n")); });
+    scope.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = t(el.getAttribute("data-i18n-ph")); });
+    scope.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+      const v = t(el.getAttribute("data-i18n-aria"));
+      el.setAttribute("aria-label", v);
+      if (el.hasAttribute("title")) el.title = v;
+    });
+    const titleEl = document.querySelector("title[data-i18n]");
+    if (titleEl) document.title = t(titleEl.getAttribute("data-i18n"));
+  }
+
+  function setLang(next) {
+    lang = next === "en" ? "en" : "zh";
+    document.documentElement.lang = lang === "en" ? "en" : "zh-Hant";
+    applyDom();
+    document.dispatchEvent(new CustomEvent("i18n:lang", { detail: { lang } }));
+  }
+
+  // 啟動拉取全局語言（冪等：多處呼叫共用同一 promise；失敗默認繁體）
+  function init() {
+    if (boot) return boot;
+    boot = fetch("/api/lang", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setLang(d && d.lang === "en" ? "en" : "zh"))
+      .catch(() => setLang("zh"));
+    return boot;
+  }
+
+  return {
+    t, detail, applyDom, setLang, init,
+    get lang() { return lang; },
+  };
+})();

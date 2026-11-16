@@ -186,18 +186,14 @@ html, body {
 .card.dim img { filter: brightness(0.35); }
 .card.removing { opacity: 0.25; pointer-events: none; }
 
-/* 縮略圖左下角拍攝日期 */
+/* 圖片下方拍攝日期行（含時分）：與檔名分行置中，互不重疊 */
 .card-date {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 14px 8px 5px;
+  display: block;
+  text-align: center;
   font-size: 0.7rem;
-  color: #fff;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
-  pointer-events: none;
+  color: var(--accent);
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 /* 隱藏狀態徽標（僅管理端可見） */
@@ -214,32 +210,70 @@ html, body {
 }
 
 /* 管理端卡片操作按鈕（右上角） */
+/* 管理模式操作列：疊於圖片底部，兩鍵平分寬度、透明底 */
 .card-actions {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
-  gap: 4px;
+  gap: 6px;
+  padding: 6px;
 }
 
 .card-btn {
-  padding: 4px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 5px 0;
+  border: 1.5px solid #4da3ff;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.62);
-  color: #fff;
+  /* 透明灰底：疊在圖片/視頻上仍可辨識，藍/紅框區分功能 */
+  background: rgba(128, 132, 138, 0.45);
+  color: #eef2f6;
   font-size: 0.72rem;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   cursor: pointer;
   touch-action: manipulation;
 }
-.card-btn:hover { border-color: var(--accent); color: var(--accent); }
+.card-btn:hover { background: rgba(128, 132, 138, 0.68); color: #ffffff; }
 .card-btn:disabled { opacity: 0.5; }
 
-.card-btn-del:hover { border-color: var(--danger); color: var(--danger); }
+.card-btn-del { border-color: #ff5252; color: #ffd0d0; }
+.card-btn-del:hover { background: rgba(255, 82, 82, 0.3); color: #ffe2e2; }
 .card-btn-del.armed {
   background: var(--danger);
   border-color: var(--danger);
   color: #fff;
+}
+
+/* 視頻卡：黑底播放瓦片（後端不生成視頻縮略圖） */
+.video-tile {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #141a22, #05080c);
+}
+.video-icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  color: var(--accent);
+  font-size: 1.05rem;
+  padding-left: 4px; /* ▶ 光學居中 */
+}
+
+/* Lightbox：圖片左右半區翻頁；視頻播放器 */
+.lb-half-nav { cursor: pointer; }
+#lb-video {
+  max-width: min(94vw, 1100px);
+  max-height: 82vh;
+  background: #000;
+  border-radius: 8px;
 }
 
 .card:hover {
@@ -259,6 +293,10 @@ html, body {
   padding: 6px 8px;
   font-size: 0.74rem;
   color: var(--text-dim);
+  text-align: center;
+}
+.card-name {
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -370,6 +408,15 @@ html, body {
 .lb-btn:hover { background: var(--accent-dim); color: var(--accent); }
 
 .lb-close { top: 14px; right: 14px; font-size: 1.7rem; }
+/* 下載按鈕：連結版圓形按鈕，位於關閉按鈕左側 */
+a.lb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  font-size: 1.15rem;
+}
+.lb-download { top: 14px; right: 66px; }
 .lb-prev { left: 10px; top: 50%; transform: translateY(-50%); }
 .lb-next { right: 10px; top: 50%; transform: translateY(-50%); }
 
@@ -577,7 +624,7 @@ input:focus {
 }
 
 .footer p { margin: 0 0 4px; overflow-wrap: anywhere; }
-.foot-sign { font-size: 0.9rem; letter-spacing: 0.1em; color: var(--text-dim); }
+.foot-sign { margin-top: 8px; font-size: 0.9rem; letter-spacing: 0.1em; color: var(--text-dim); }
 .foot-line { font-variant-numeric: tabular-nums; }
 
 .foot-admin {

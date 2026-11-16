@@ -1,8 +1,9 @@
-"""图库目录扫描：递归收集受支持格式的图片并按文件夹分组。
+"""图库目录扫描：递归收集受支持格式的图片与视频并按文件夹分组。
 
 结果带短 TTL 内存缓存，避免首页反复刷新时重复遍历 FTP 挂载目录。
 拍摄时间优先取 EXIF DateTimeOriginal（无 EXIF 回退文件 mtime），
-按 (大小|mtime) 指纹增量缓存到 db/meta.json，仅新图/改动图才解析 EXIF。
+按 (大小|mtime) 指纹增量缓存到 db/meta.json，仅新图/改动图才解析 EXIF；
+视频不解析 EXIF，拍摄时间取文件 mtime。
 """
 import json
 import os
@@ -16,6 +17,16 @@ from . import config
 
 # 受支持的图片扩展名（小写比较）。svg 因可直接在浏览器执行脚本而排除。
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif"}
+# 受支持的视频扩展名：mp4/mov/m4v/webm 现代浏览器可直接播放，其余格式由
+# 浏览器自行提示不支持（前端 <video controls> 原样透传 /media）。
+# 視頻副檔白名單：後端只負責識別與原樣轉發，能否播放取決於瀏覽器原生解碼
+# （MP4/H.264、WebM、OGV 通用性最好；MKV/AVI/FLV 等視編碼而定）
+VIDEO_EXTS = {
+    ".mp4", ".mov", ".m4v", ".webm", ".ogv", ".mkv", ".avi", ".wmv", ".flv",
+    ".mpg", ".mpeg", ".mts", ".m2ts", ".ts", ".3gp", ".vob", ".divx",
+    ".rm", ".rmvb", ".f4v",
+}
+MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
 
 _ROOT_LABEL = "（根目錄）"
 
@@ -136,21 +147,25 @@ def _image_entry(root: Path, path: Path) -> dict:
     except ValueError:
         key = rel  # 图库根不在 FTP 根内（理论不会发生）的兜底
     stat = path.stat()
-    fingerprint = f"{stat.st_size}|{int(stat.st_mtime)}"
+    is_video = path.suffix.lower() in VIDEO_EXTS
     mtime_iso = datetime.fromtimestamp(
         stat.st_mtime, tz=timezone.utc
     ).strftime("%Y-%m-%dT%H:%M:%S")
-    captured = None
-    with _meta_lock:
-        meta = _meta_load_locked()
-        cached = meta.get(key)
-        if isinstance(cached, dict) and cached.get("k") == fingerprint:
-            captured = cached.get("t") or None
-        else:
-            captured = _capture_time(path) or mtime_iso
-            meta[key] = {"k": fingerprint, "t": captured}
-    if captured is None:
-        captured = mtime_iso
+    if is_video:
+        captured = mtime_iso  # 视频无 EXIF 解析，拍摄时间取 mtime
+    else:
+        captured = None
+        fingerprint = f"{stat.st_size}|{int(stat.st_mtime)}"
+        with _meta_lock:
+            meta = _meta_load_locked()
+            cached = meta.get(key)
+            if isinstance(cached, dict) and cached.get("k") == fingerprint:
+                captured = cached.get("t") or None
+            else:
+                captured = _capture_time(path) or mtime_iso
+                meta[key] = {"k": fingerprint, "t": captured}
+        if captured is None:
+            captured = mtime_iso
     return {
         "path": rel,
         "key": key,
@@ -158,6 +173,7 @@ def _image_entry(root: Path, path: Path) -> dict:
         "size": stat.st_size,
         "mtime": mtime_iso,
         "captured": captured,
+        "kind": "video" if is_video else "image",
     }
 
 
@@ -181,7 +197,7 @@ def scan(root: Path) -> tuple[list[dict], bool]:
         for path in sorted(root.rglob("*"), key=lambda p: p.as_posix()):
             if not path.is_file():
                 continue
-            if path.suffix.lower() not in IMAGE_EXTS:
+            if path.suffix.lower() not in MEDIA_EXTS:
                 continue
             rel = path.relative_to(root)
             if _is_hidden(rel):
