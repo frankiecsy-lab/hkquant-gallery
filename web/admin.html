@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f14">
+  <title>管理 — HKQuant Gallery</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- 頂欄：返回圖庫與頁面標題 -->
+  <header class="topbar">
+    <div class="topbar-text">
+      <h1>圖庫管理</h1>
+      <p class="subtitle">HKQuant Gallery</p>
+    </div>
+    <a class="admin-link" href="/">返回圖庫</a>
+  </header>
+
+  <main class="page page-narrow">
+    <!-- 未登入：登入卡 -->
+    <section id="login-card" class="panel" hidden>
+      <h2>登入</h2>
+      <form id="login-form" novalidate>
+        <label for="login-password">密碼</label>
+        <input type="password" id="login-password" autocomplete="current-password" required>
+        <button type="submit" class="btn btn-primary" id="login-submit">登入</button>
+        <p id="login-msg" class="msg" role="status"></p>
+      </form>
+    </section>
+
+    <!-- 已登入：四塊管理面板 -->
+    <div id="panels" hidden>
+      <!-- ① 圖庫資料夾設定 -->
+      <section class="panel">
+        <h2>圖庫資料夾</h2>
+        <p id="root-current" class="hint">當前圖庫資料夾：—</p>
+        <form id="root-form" novalidate>
+          <label for="root-input">資料夾路徑（相對 FTP 根目錄）</label>
+          <input type="text" id="root-input" placeholder=".（FTP 根目錄）" autocomplete="off">
+          <button type="submit" class="btn btn-primary" id="root-submit">保存</button>
+          <p id="root-msg" class="msg" role="status"></p>
+        </form>
+      </section>
+
+      <!-- ② 主頁標題 -->
+      <section class="panel">
+        <h2>主頁標題</h2>
+        <p id="title-current" class="hint">當前標題：—</p>
+        <form id="title-form" novalidate>
+          <label for="title-input">標題（1–80 字，顯示於圖庫首頁頂欄）</label>
+          <input type="text" id="title-input" maxlength="80" placeholder="HKQuant Gallery" autocomplete="off">
+          <button type="submit" class="btn btn-primary" id="title-submit">保存標題</button>
+          <p id="title-msg" class="msg" role="status"></p>
+        </form>
+      </section>
+
+      <!-- ③ FTP 儲存容量 -->
+      <section class="panel">
+        <h2>FTP 儲存容量</h2>
+        <div class="bar" aria-hidden="true"><div id="storage-bar" class="bar-fill"></div></div>
+        <p id="storage-text" class="hint">讀取中…</p>
+        <p id="storage-msg" class="msg" role="status"></p>
+      </section>
+
+      <!-- ④ 查看密碼（首頁看相闸门） -->
+      <section class="panel">
+        <h2>查看密碼</h2>
+        <p id="view-current" class="hint">當前台區：—</p>
+        <form id="view-form" novalidate>
+          <label for="view-code">數字密碼（4–12 位，訪客於首頁用數字鍵盤輸入）</label>
+          <input type="text" id="view-code" inputmode="numeric" pattern="[0-9]*" maxlength="12" placeholder="例如 246810" autocomplete="off">
+          <label for="view-code2">確認密碼</label>
+          <input type="text" id="view-code2" inputmode="numeric" pattern="[0-9]*" maxlength="12" placeholder="再輸入一次" autocomplete="off">
+          <div class="btn-row">
+            <button type="submit" class="btn btn-primary" id="view-save">保存密碼</button>
+            <button type="button" class="btn" id="view-toggle">啟用闸门</button>
+          </div>
+          <p id="view-msg" class="msg" role="status"></p>
+        </form>
+      </section>
+
+      <!-- ⑤ 修改密碼 -->
+      <section class="panel">
+        <h2>修改密碼</h2>
+        <form id="pwd-form" novalidate>
+          <label for="pwd-old">原密碼</label>
+          <input type="password" id="pwd-old" autocomplete="current-password" required>
+          <label for="pwd-new">新密碼（至少 8 個字符）</label>
+          <input type="password" id="pwd-new" autocomplete="new-password" required>
+          <label for="pwd-confirm">確認新密碼</label>
+          <input type="password" id="pwd-confirm" autocomplete="new-password" required>
+          <button type="submit" class="btn btn-primary" id="pwd-submit">更新密碼</button>
+          <p id="pwd-msg" class="msg" role="status"></p>
+        </form>
+      </section>
+
+      <!-- ⑥ 危险区域 -->
+      <section class="panel">
+        <h2>危險區域</h2>
+        <p class="hint">一鍵刪除當前圖庫資料夾內<b>全部圖片</b>（含已隱藏；非圖片檔案保留）。此操作無法還原。</p>
+        <button type="button" class="btn btn-danger" id="delete-all-btn">一鍵全部刪除</button>
+        <form id="delete-all-form" hidden novalidate>
+          <label for="delete-all-pw">管理密碼（二次確認）</label>
+          <input type="password" id="delete-all-pw" autocomplete="current-password" required>
+          <button type="submit" class="btn btn-danger" id="delete-all-confirm">確認刪除全部圖片</button>
+        </form>
+        <p id="delete-all-msg" class="msg" role="status"></p>
+      </section>
+
+      <!-- ⑦ 登出 -->
+      <section class="panel">
+        <h2>登出</h2>
+        <p class="hint">結束當前管理工作階段。</p>
+        <button type="button" class="btn btn-danger" id="logout-btn">登出</button>
+        <p id="logout-msg" class="msg" role="status"></p>
+      </section>
+    </div>
+  </main>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f14">
+  <title>HKQuant Gallery</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- 頂欄：標題與設置入口（管理入口在頁腳） -->
+  <header class="topbar">
+    <div class="topbar-text">
+      <h1 id="gallery-title">HKQuant Gallery</h1>
+    </div>
+    <a class="admin-link" href="/settings">設置</a>
+  </header>
+
+  <main class="page">
+    <!-- 篩選與工具列：資料夾膠囊（默認全部）＋名稱/時間排序與正反序 -->
+    <nav class="toolbar" id="toolbar" hidden>
+      <div class="chips" id="folder-chips" aria-label="資料夾篩選"></div>
+      <div class="sort-row">
+        <span class="sort-group" role="group" aria-label="排序方式">
+          <button type="button" class="seg" id="sort-name">名稱</button>
+          <button type="button" class="seg" id="sort-time">時間</button>
+        </span>
+        <button type="button" class="seg" id="sort-dir" aria-label="切換正序或反序">反序 ↓</button>
+      </div>
+    </nav>
+
+    <!-- 行內狀態提示：載入中／空圖庫／失敗 -->
+    <p id="status" class="status" role="status">載入中…</p>
+    <div id="gallery" class="gallery" hidden></div>
+
+    <!-- 分頁（照片多時） -->
+    <nav class="pager" id="pager" aria-label="分頁" hidden></nav>
+  </main>
+
+  <footer class="footer">
+    <p class="foot-sign" id="foot-sign">Frankie Cheung</p>
+    <p class="foot-line" id="foot-stats" hidden></p>
+    <p class="foot-line" id="foot-folders" hidden></p>
+    <a class="admin-link foot-admin" href="/admin">管理</a>
+  </footer>
+
+  <!-- 查看密码闸门：服务器返回 403 时显示，内置数字键盘方便手机输入 -->
+  <div id="gate" class="gate" hidden aria-modal="true" role="dialog" aria-label="查看密碼">
+    <div class="gate-card">
+      <h2>查看密碼</h2>
+      <div class="gate-dots" id="gate-dots" aria-hidden="true"></div>
+      <p id="gate-msg" class="msg" role="status"></p>
+      <div class="pad" id="gate-pad"></div>
+    </div>
+  </div>
+
+  <!-- 全螢幕圖片預覽（lightbox） -->
+  <div id="lightbox" class="lightbox" hidden aria-modal="true" role="dialog" aria-label="圖片預覽">
+    <button type="button" class="lb-btn lb-close" id="lb-close" aria-label="關閉">&times;</button>
+    <button type="button" class="lb-btn lb-prev" id="lb-prev" aria-label="上一張">&#8249;</button>
+    <button type="button" class="lb-btn lb-next" id="lb-next" aria-label="下一張">&#8250;</button>
+    <figure class="lb-figure">
+      <img id="lb-img" alt="">
+      <figcaption class="lb-caption">
+        <span id="lb-name" class="lb-name"></span>
+        <span id="lb-index" class="lb-index"></span>
+      </figcaption>
+    </figure>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

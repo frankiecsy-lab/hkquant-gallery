@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f14">
+  <title>顯示設置 — HKQuant Gallery</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- 顶栏：返回圖庫 -->
+  <header class="topbar">
+    <div class="topbar-text">
+      <h1>顯示設置</h1>
+      <p class="subtitle">控制縮略圖上顯示的資訊（全局生效）</p>
+    </div>
+    <a class="admin-link" href="/">返回圖庫</a>
+  </header>
+
+  <main class="page page-narrow">
+    <!-- 未登入提示 -->
+    <section id="need-login" class="panel" hidden>
+      <h2>需要管理員登入</h2>
+      <p class="hint">此頁面僅限管理員使用，請先前往管理頁登入。</p>
+      <a class="btn btn-primary btn-block" href="/admin">前往登入</a>
+    </section>
+
+    <!-- 已登入：縮略圖顯示開關 -->
+    <div id="panels" hidden>
+      <section class="panel">
+        <h2>縮略圖顯示</h2>
+        <label class="check-row">
+          <input type="checkbox" id="opt-date">
+          <span>顯示拍攝日期（圖片左下角）</span>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" id="opt-name">
+          <span>顯示檔案名稱（圖片下方）</span>
+        </label>
+        <button type="button" class="btn btn-primary btn-block" id="save-btn">保存</button>
+        <p id="save-msg" class="msg" role="status"></p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p class="foot-sign">Frankie Cheung</p>
+  </footer>
+
+  <script src="/settings.js"></script>
+</body>
+</html>

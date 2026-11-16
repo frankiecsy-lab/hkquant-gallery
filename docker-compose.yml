@@ -1,0 +1,21 @@
+# hkquant-gallery 生产编排（服务器 /opt/hkquant-gallery）。
+# - 静态 IP 172.18.0.17（NPM proxy host id 10 转发目标），不发布任何宿主端口
+# - FTP 根目录读写挂载（管理端"删除照片"需要 unlink 权限；写路径仅 /api/photo/delete 严格校验后使用）
+# - 应用 JSON 数据与缩略图缓存在宿主 /opt/hkquant-gallery/data
+name: hkquant-gallery
+services:
+  gallery:
+    build: .
+    container_name: hkquant-gallery
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /srv/ftp:/srv/ftp
+      - /opt/hkquant-gallery/data:/data
+    networks:
+      hkquant-net:
+        ipv4_address: 172.18.0.17
+
+networks:
+  hkquant-net:
+    external: true
