@@ -39,6 +39,9 @@ const els = {
   pwdMsg: document.getElementById("pwd-msg"),
   faceStatus: document.getElementById("face-status"),
   faceRebuild: document.getElementById("face-rebuild"),
+  faceIdleForm: document.getElementById("face-idle-form"),
+  faceIdle: document.getElementById("face-idle"),
+  faceIdleSave: document.getElementById("face-idle-save"),
   faceMsg: document.getElementById("face-msg"),
   deleteAllBtn: document.getElementById("delete-all-btn"),
   deleteAllForm: document.getElementById("delete-all-form"),
@@ -390,6 +393,11 @@ function renderFaceStatus() {
     return;
   }
   els.faceRebuild.disabled = lastFace.running;
+  // 回填闲置卸载分钟数（用户正在输入时不打断）
+  if (Number.isInteger(lastFace.idle_unload_minutes)
+      && document.activeElement !== els.faceIdle) {
+    els.faceIdle.value = String(lastFace.idle_unload_minutes);
+  }
   let text = I18N.t("admin.faceStatus",
     { indexed: lastFace.indexed, total: lastFace.total_images });
   if (lastFace.running) {
@@ -411,6 +419,25 @@ async function loadFaceStatus() {
     }
   } catch (_) { /* 面板保持上一次狀態 */ }
 }
+
+els.faceIdleForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const minutes = parseInt(els.faceIdle.value, 10);
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 240) {
+    setMsg(els.faceMsg, I18N.t("admin.faceUnloadBad"), "err");
+    return;
+  }
+  clearMsg(els.faceMsg);
+  withBusy(els.faceIdleSave, async () => {
+    const { status, data } = await postJson("/api/face/unload", { minutes });
+    if (status === 200 && data && data.ok) {
+      setMsg(els.faceMsg, I18N.t("admin.faceUnloadSaved"), "ok");
+      loadFaceStatus();
+    } else {
+      setMsg(els.faceMsg, detailOf(data, status), "err");
+    }
+  });
+});
 
 els.faceRebuild.addEventListener("click", () => {
   withBusy(els.faceRebuild, async () => {

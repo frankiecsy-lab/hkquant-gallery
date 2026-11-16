@@ -229,6 +229,19 @@ class Store:
             self._settings["lang"] = lang
             self._save(self._settings_file, self._settings)
 
+    # ---------- 人脸模型闲置卸载时间 ----------
+
+    def get_face_idle_minutes(self) -> int:
+        """管理页设置的闲置卸载分钟数；-1 表示未设置（回退环境变量默认）。"""
+        with self._lock:
+            value = self._settings.get("face_idle_minutes", -1)
+            return value if isinstance(value, int) and not isinstance(value, bool) else -1
+
+    def set_face_idle_minutes(self, minutes: int) -> None:
+        with self._lock:
+            self._settings["face_idle_minutes"] = minutes
+            self._save(self._settings_file, self._settings)
+
     # ---------- 密码 ----------
 
     def verify_password(self, password: str) -> bool:

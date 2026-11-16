@@ -27,6 +27,11 @@ from .store import Store
 app = FastAPI(title=config.SITE_TITLE, docs_url=None, redoc_url=None)
 store = Store(config.DATA_DIR, config.INITIAL_ADMIN_PASSWORD)
 
+# 管理頁曾設置的人臉模型闲置卸载分钟数：启动时套回（-1＝未设置，用环境变量默认）。
+_face_idle = store.get_face_idle_minutes()
+if _face_idle >= 0:
+    faces.set_idle_unload_seconds(_face_idle * 60)
+
 _ROOT_DISPLAY = "FTP 根目錄"
 # 相对路径单段合法性：允许中文与常见安全字符，禁止以点开头（隐藏文件）与分隔符。
 _SEGMENT_RE = re.compile(r"^[^/\\:*?\"<>|.\x00-\x1f][^/\\:*?\"<>|\x00-\x1f]*$")
@@ -715,7 +720,22 @@ def face_status():
         "pending": faces.pending_count(entries) if has_models else 0,
         "running": st["running"], "done": st["done"], "todo": st["todo"],
         "errors": st["errors"], "threshold": config.FACES_MATCH_THRESHOLD,
+        "idle_unload_minutes": int(round(faces.get_idle_unload_seconds() / 60)),
     }
+
+
+class FaceUnloadBody(BaseModel):
+    minutes: int
+
+
+@app.post("/api/face/unload", dependencies=[Depends(require_login)])
+def face_unload(body: FaceUnloadBody):
+    """设置人脸模型闲置卸载时间（分钟；0＝常驻内存）。即时生效并持久化。"""
+    if body.minutes < 0 or body.minutes > 240:
+        raise HTTPException(status_code=400, detail="卸載時間須為 0–240 分鐘（0＝常駐）")
+    faces.set_idle_unload_seconds(body.minutes * 60)
+    store.set_face_idle_minutes(body.minutes)
+    return {"ok": True, "minutes": body.minutes}
 
 
 @app.post("/api/face/index", dependencies=[Depends(require_login)])

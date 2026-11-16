@@ -101,6 +101,11 @@
         <p class="hint" data-i18n="admin.faceHint">訪客可用自拍搜尋包含相同人物的相片。上傳新相後請重建索引（背景逐張進行）。</p>
         <p id="face-status" class="hint">—</p>
         <button type="button" class="btn btn-primary" id="face-rebuild" data-i18n="admin.faceRebuild">建立／重建索引</button>
+        <form id="face-idle-form" novalidate>
+          <label for="face-idle" data-i18n="admin.faceUnloadLabel">模型閒置卸載時間（分鐘；0＝常駐記憶體）</label>
+          <input type="number" id="face-idle" min="0" max="240" step="1" inputmode="numeric" autocomplete="off">
+          <button type="submit" class="btn" id="face-idle-save" data-i18n="admin.faceUnloadSave">保存卸載時間</button>
+        </form>
         <p id="face-msg" class="msg" role="status"></p>
       </section>
 

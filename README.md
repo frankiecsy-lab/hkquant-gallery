@@ -23,7 +23,7 @@
   管理員免輸入；改密碼即令所有查看會話失效；錯 5 次鎖 5 分鐘
 - **管理頁 `/admin`**：純密碼登入（無用戶名），所有操作按鈕全寬、登出紅底白字；
   面板順序＝主頁標題（第一）、圖庫資料夾（相對 FTP 根的路徑，`.`＝根目錄）、FTP 儲存容量條
-  （10G 配額，≥80% 轉紅）、查看密碼設置、修改密碼、**人臉索引（狀態＋建立/重建，索引中自動輪詢）**、
+  （10G 配額，≥80% 轉紅）、查看密碼設置、修改密碼、**人臉索引（狀態＋建立/重建＋閒置卸載分鐘設置（0＝常駐），索引中自動輪詢）**、
   **危險區域（一鍵全部刪除，管理密碼二次確認；只刪相片與視頻，RAW／文件等非媒體保留）**、登出
 - **管理模式（首頁 is_admin）**：圖片底部疊一列「隱藏／顯示」＋「刪除」（平分寬度、
   透明深灰底、藍框／紅框；刪除再按一次＝確定；隱藏卡變暗＋徽標，公眾即時不可見）；
@@ -78,7 +78,7 @@ pip install -r requirements.txt
 $env:GALLERY_FTP_ROOT="<測試圖片目錄>"; $env:GALLERY_DATA_DIR="data"; $env:GALLERY_COOKIE_SECURE="0"
 python -m uvicorn app.main:app --port 8000 --app-dir hkquant-gallery
 ```
-迴歸測試：`python -I .SCRATCH/gallery_e2e.py`（167 項，程序內 TestClient，
+迴歸測試：`python -I .SCRATCH/gallery_e2e.py`（174 項，程序內 TestClient，
 含 delete_all 清空測試——只用临时fixtures，唔會碰真實檔案）；
 公網閘門實測：`python -I .SCRATCH/gallery_gate_check.py`（跑完自動復位）。
 
@@ -95,7 +95,7 @@ python -m uvicorn app.main:app --port 8000 --app-dir hkquant-gallery
 `GET /api/settings`（含 sort／lang／all_folders／visible_folders）、`GET /api/storage`、
 `POST /api/settings/root|title|password|view|display|sort|folders|lang`、
 `POST /api/photo/hide|delete|delete_all`、
-`GET /api/face/status`、`POST /api/face/index`（管理）
+`GET /api/face/status`、`POST /api/face/index`、`POST /api/face/unload`（管理；分鐘數持久化）
 錯誤統一 `{"detail": "..."}`；細節見 `.SCRATCH/gallery_api_contract.md`。
 
 ## 環境變數（`.env`，參考 `.env.example`）
@@ -112,5 +112,5 @@ python -m uvicorn app.main:app --port 8000 --app-dir hkquant-gallery
 | GALLERY_FACES_DIR | 人臉模型目錄（默認 /models；缺檔即 503 降級） |
 | GALLERY_FACES_THRESHOLD | 人臉匹配餘弦閾值（默認 0.40） |
 | GALLERY_FACES_INDEX_INTERVAL | 背景索引每張節流秒數（默認 1.5） |
-| GALLERY_FACES_IDLE_UNLOAD | 模型閒置卸載秒數（默認 300；0＝常駐） |
+| GALLERY_FACES_IDLE_UNLOAD | 模型閒置卸載秒數默認值（300；0＝常駐）；**管理頁設置嘅分鐘數會覆蓋** |
 | GALLERY_FACES_MAX_UPLOAD | 自拍上傳上限字節（默認 8MB） |

@@ -115,6 +115,10 @@ window.I18N = (function () {
       "admin.faceErrors": "（{n} 張失敗）",
       "admin.faceNoModels": "未啟用：伺服器缺少模型檔案",
       "admin.faceRebuild": "建立／重建索引",
+      "admin.faceUnloadLabel": "模型閒置卸載時間（分鐘；0＝常駐記憶體）",
+      "admin.faceUnloadSave": "保存卸載時間",
+      "admin.faceUnloadSaved": "卸載時間已保存，即時生效",
+      "admin.faceUnloadBad": "請輸入 0–240 的整數分鐘",
       "admin.faceStarted": "索引已開始，於背景進行",
       "admin.faceUpToDate": "索引已是最新",
       "admin.dangerPanel": "危險區域",
@@ -262,6 +266,10 @@ window.I18N = (function () {
       "admin.faceErrors": " ({n} failed)",
       "admin.faceNoModels": "Not enabled: model files missing on the server",
       "admin.faceRebuild": "Build / Rebuild Index",
+      "admin.faceUnloadLabel": "Model idle unload timeout (minutes; 0 = keep loaded)",
+      "admin.faceUnloadSave": "Save Unload Timeout",
+      "admin.faceUnloadSaved": "Unload timeout saved — applied immediately",
+      "admin.faceUnloadBad": "Enter a whole number from 0 to 240 minutes",
       "admin.faceStarted": "Indexing started in the background",
       "admin.faceUpToDate": "Index is already up to date",
       "admin.dangerPanel": "Danger Zone",
@@ -326,6 +334,7 @@ window.I18N = (function () {
     "照片无法解析": "The image could not be decoded",
     "请上传自拍照片": "Please upload a selfie",
     "自拍照片过大": "Selfie image is too large",
+    "卸載時間須為 0–240 分鐘（0＝常駐）": "Unload timeout must be 0–240 minutes (0 = keep loaded)",
   };
 
   let lang = "zh";

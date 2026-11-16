@@ -43,6 +43,23 @@ _state_lock = threading.Lock()
 _sessions: tuple | None = None  # (det_session, rec_session)
 _last_use = 0.0
 _watchdog: threading.Thread | None = None
+# 闲置卸载秒数的运行期覆盖（管理页设置；None＝用环境变量默认）。
+_idle_override: float | None = None
+
+
+def get_idle_unload_seconds() -> float:
+    return config.FACES_IDLE_UNLOAD_SECONDS if _idle_override is None else _idle_override
+
+
+def set_idle_unload_seconds(seconds: float) -> None:
+    """即时更新闲置卸载秒数（0＝常驻）；模型已加载且为正数时确保看门狗在跑。"""
+    global _idle_override, _watchdog
+    _idle_override = max(0.0, float(seconds))
+    with _state_lock:
+        if _sessions is not None and _idle_override > 0 and (
+                _watchdog is None or not _watchdog.is_alive()):
+            _watchdog = threading.Thread(target=_watchdog_loop, daemon=True)
+            _watchdog.start()
 
 
 def sessions_loaded() -> bool:
@@ -81,7 +98,7 @@ def _ensure_sessions():
                 _sessions = _load_sessions()
             except Exception as exc:  # noqa: BLE001
                 raise FaceUnavailable(f"模型加载失败：{exc}") from exc
-            if config.FACES_IDLE_UNLOAD_SECONDS > 0 and (
+            if get_idle_unload_seconds() > 0 and (
                     _watchdog is None or not _watchdog.is_alive()):
                 _watchdog = threading.Thread(target=_watchdog_loop, daemon=True)
                 _watchdog.start()
@@ -90,18 +107,17 @@ def _ensure_sessions():
 
 
 def _watchdog_loop():
-    """闲置超过 FACES_IDLE_UNLOAD_SECONDS 且索引未运行时释放会话，回收约 200MB。"""
+    """闲置超过当前卸载时限（每拍重读，管理页可即时改）且索引未运行时释放会话，回收约 200MB。"""
     global _sessions, _watchdog
     while True:
         time.sleep(30)
+        limit = get_idle_unload_seconds()
         with _state_lock:
             if _sessions is None:
                 _watchdog = None
                 return
             idle = time.time() - _last_use
-            if (config.FACES_IDLE_UNLOAD_SECONDS > 0
-                    and idle > config.FACES_IDLE_UNLOAD_SECONDS
-                    and not _index_state["running"]):
+            if limit > 0 and idle > limit and not _index_state["running"]:
                 _sessions = None
                 return
 
