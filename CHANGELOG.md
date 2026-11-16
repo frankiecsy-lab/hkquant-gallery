@@ -1,5 +1,27 @@
 # Changelog — hkquant-gallery
 
+## v1.5.0（2026-11-16）
+- **人臉搜尋（自拍找人）**：buffalo_sc 模型（SCRFD-500M 640×640 偵測＋w600k_mbf 512 維識別，
+  合共 ~16MB），純 onnxruntime＋numpy＋Pillow（無 OpenCV／insightface 依賴樹）；
+  新增 `app/faces.py`：模型惰性載入＋單飛鎖＋閒置自動卸載（看門狗預設 300 秒，回收約 200MB）、
+  單線程推論（1.6G 共享伺服器 CPU 友善）、背景索引執行緒按 size|mtime 增量逐張節流
+  （預設 1.5 秒/張，77 張約 2 分鐘）、向量以 base64(float32) 存入 `db/faces.json`、
+  餘弦匹配預設閾值 0.40（POC 實測：同人 0.91／不同人 0.06）；大圖解碼前 draft 降採樣
+- **端點**：`POST /api/face/search`（請求體＝圖片二進制原體，免 python-multipart；require_view；
+  無模型 503／冇面 400／亂碼 400／超過 8MB 400；只回訪客可見路徑——隱藏照片與不可見資料夾即時剔除；
+  首次搜尋自動觸發背景增量建索引）、`POST /api/face/index`（管理手動增量重建）、
+  `GET /api/face/status`（管理：模型狀態／已索引量／進度）
+- **前端**：頂欄「設置」左邊加「人臉搜尋」膠囊按鈕（高頻控件唔用下拉）→ 自拍卡
+  （`<input capture="user">` 手機直啟相機／相簿＋預覽）→ 主頁只顯示匹配相片＋
+  「人臉匹配 N 張」橫幅（「返回全部」還原過濾前頁碼）；過濾只影響本瀏覽器顯示層；
+  管理頁新增「人臉索引」面板（狀態行＋建立/重建掣，索引中每 4 秒輪詢）；i18n 全鍵＋5 條 detail 映射
+- **基建**：requirements 加 onnxruntime／numpy；compose 掛載
+  `/opt/hkquant-gallery/models:/models:ro`（模型放 www 以外，重新解包不受影響）；
+  `GALLERY_FACES_*` 五個環境變數均有預設（見 `.env.example`）
+- **伺服器 POC（一次性容器 512m 上限實測）**：載入 0.06 秒、peak RSS 237MB、
+  單張偵測 76ms＋識別 41ms、跑完主機記憶體零殘留——1.6G 環境確認 Safe 先落地
+- e2e 擴至 167 項（人臉端點鑒權＋無模型 503 友好降級；完整鏈路另行以真實模型驗證）
+
 ## v1.4.0（2026-11-16）
 - **視頻縮略圖＝瀏覽器端抽取第一格畫面**：隱藏 `<video>` seek 開首約 1 秒 →
   canvas 最長邊 640 → JPEG dataURL 疊於瓦片（▶ 徽標保留於海報上）；併發 3、

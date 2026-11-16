@@ -22,6 +22,17 @@ const els = {
   gateDots: document.getElementById("gate-dots"),
   gateMsg: document.getElementById("gate-msg"),
   gatePad: document.getElementById("gate-pad"),
+  faceBtn: document.getElementById("face-btn"),
+  faceModal: document.getElementById("face-modal"),
+  faceFile: document.getElementById("face-file"),
+  facePick: document.getElementById("face-pick"),
+  faceGo: document.getElementById("face-go"),
+  facePreview: document.getElementById("face-preview"),
+  faceMsg: document.getElementById("face-msg"),
+  faceClose: document.getElementById("face-close"),
+  faceBanner: document.getElementById("face-banner"),
+  faceBannerText: document.getElementById("face-banner-text"),
+  faceReset: document.getElementById("face-reset"),
 };
 
 const PAGE_SIZE = 60;
@@ -37,6 +48,11 @@ let display = { date: false, name: false, photos: true, videos: true };
 let sortCfg = { by: "captured", desc: true }; // 全局排序（設置頁配置，服務端下發）
 let stats = null;
 let current = -1;
+let facePaths = null;   // 人臉匹配的 path 集合（null＝無過濾）
+let faceSavedPage = 1;  // 過濾前的頁碼，返回全部時還原
+let faceBusy = false;
+let faceFileSel = null;
+let facePreviewUrl = "";
 
 // 將契約中的未 encode POSIX 路徑轉為 URL（逐段 encodeURIComponent）
 function mediaUrl(path) {
@@ -176,6 +192,8 @@ const PAGE_KEY = "gallery.page";
 
 function refresh() {
   items = sortedItems();
+  // 人臉匹配過濾（僅本瀏覽器顯示層；不影響任何全局設置）
+  if (facePaths) items = items.filter((i) => facePaths.has(i.path));
   const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   if (page > totalPages) page = totalPages;
   if (page < 1) page = 1;
@@ -509,6 +527,92 @@ els.lightbox.addEventListener("touchend", (e) => {
   }
 }, { passive: true });
 
+// ---------- 人臉搜尋（自拍找人：服務端 ONNX 比對，客戶端只做顯示過濾） ----------
+
+function setFaceMsg(text, kind) {
+  els.faceMsg.textContent = text || "";
+  els.faceMsg.className = "msg" + (kind ? " " + kind : "");
+}
+
+function updateFaceBanner() {
+  if (!facePaths) { els.faceBanner.hidden = true; return; }
+  els.faceBannerText.textContent = I18N.t("face.matched", { n: facePaths.size });
+  els.faceBanner.hidden = false;
+}
+
+function applyFaceFilter(paths) {
+  if (paths && !facePaths) faceSavedPage = page; // 進入過濾前記頁碼
+  if (!paths) page = faceSavedPage;              // 返回全部時還原
+  facePaths = paths;
+  updateFaceBanner();
+  refresh();
+}
+
+els.faceBtn.addEventListener("click", () => {
+  setFaceMsg("");
+  els.faceModal.hidden = false;
+});
+
+els.faceClose.addEventListener("click", () => { els.faceModal.hidden = true; });
+
+// 點背幕關閉（點在卡片內不算）
+els.faceModal.addEventListener("click", (e) => {
+  if (e.target === els.faceModal) els.faceModal.hidden = true;
+});
+
+els.facePick.addEventListener("click", () => els.faceFile.click());
+
+els.faceFile.addEventListener("change", () => {
+  const file = els.faceFile.files && els.faceFile.files[0];
+  if (!file) return;
+  if (file.size > 8 * 1024 * 1024) { // 後端同上限（GALLERY_FACES_MAX_UPLOAD），前端先擋
+    setFaceMsg(I18N.t("face.tooBig"), "err");
+    els.faceFile.value = "";
+    return;
+  }
+  faceFileSel = file;
+  if (facePreviewUrl) URL.revokeObjectURL(facePreviewUrl);
+  facePreviewUrl = URL.createObjectURL(file);
+  els.facePreview.src = facePreviewUrl;
+  els.facePreview.hidden = false;
+  els.faceGo.disabled = false;
+  setFaceMsg("");
+});
+
+els.faceGo.addEventListener("click", async () => {
+  if (faceBusy) return;
+  if (!faceFileSel) { setFaceMsg(I18N.t("face.needFirst"), "err"); return; }
+  faceBusy = true;
+  els.faceGo.disabled = true;
+  setFaceMsg(I18N.t("face.searching"));
+  try {
+    // 契約：請求體＝圖片二進制（非 multipart）
+    const res = await fetch("/api/face/search", {
+      method: "POST", credentials: "same-origin", body: faceFileSel,
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) { data = null; }
+    if (res.status === 200 && data) {
+      const matches = Array.isArray(data.matches) ? data.matches : [];
+      if (matches.length === 0) {
+        setFaceMsg(I18N.t("face.none"), "ok"); // 保持原清單，方便換一張再搜
+        return;
+      }
+      applyFaceFilter(new Set(matches.map((m) => m.path)));
+      els.faceModal.hidden = true;
+    } else {
+      setFaceMsg(detailOf(data, res.status), "err"); // 冇面／未啟用等 detail 直顯
+    }
+  } catch (_) {
+    setFaceMsg(I18N.t("common.netRetry"), "err");
+  } finally {
+    faceBusy = false;
+    els.faceGo.disabled = !faceFileSel;
+  }
+});
+
+els.faceReset.addEventListener("click", () => applyFaceFilter(null));
+
 // ---------- 查看密碼閘門（數字鍵盤） ----------
 
 const CODE_MAX = 12;
@@ -664,6 +768,7 @@ document.addEventListener("i18n:lang", () => {
   buildPad();
   if (!els.gate.hidden) setGateMsg(I18N.t("gate.prompt"));
   if (stats) updateFooter();
+  updateFaceBanner();
   if (items.length) refresh();
 });
 

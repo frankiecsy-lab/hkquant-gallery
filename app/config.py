@@ -52,6 +52,19 @@ THUMB_MAX_SIDE = int(os.environ.get("GALLERY_THUMB_MAX_SIDE", "640"))
 THUMB_QUALITY = int(os.environ.get("GALLERY_THUMB_QUALITY", "80"))
 THUMB_DIR = DATA_DIR / "thumbs"
 
+# 人脸检索（buffalo_sc：det_500m.onnx＋w600k_mbf.onnx，compose 只读挂载 /models）。
+# 1.6G RAM 约束：模型惰性加载＋闲置自动卸载；后台索引按张节流；模型目录缺失时接口 503。
+FACES_MODEL_DIR = Path(os.environ.get("GALLERY_FACES_DIR", "/models")).resolve()
+FACES_DB = DATA_DIR / "faces.json"
+# 余弦相似度匹配阈值（POC：同人 0.91／不同人 0.06，0.40 留有充分余量）。
+FACES_MATCH_THRESHOLD = float(os.environ.get("GALLERY_FACES_THRESHOLD", "0.40"))
+# 后台索引每张图之间的休眠秒数（共享服务器 CPU 友好；77 张约 2 分钟）。
+FACES_INDEX_INTERVAL = float(os.environ.get("GALLERY_FACES_INDEX_INTERVAL", "1.5"))
+# 闲置超过该秒数自动卸载模型释放内存（0＝常驻不卸载）。
+FACES_IDLE_UNLOAD_SECONDS = float(os.environ.get("GALLERY_FACES_IDLE_UNLOAD", "300"))
+# 自拍上传体积上限（字节）。
+FACES_MAX_UPLOAD = int(os.environ.get("GALLERY_FACES_MAX_UPLOAD", str(8 * 1024 * 1024)))
+
 # “在线人数”按最后活动于此窗口内（秒）的访问者去重统计。
 ONLINE_WINDOW_SECONDS = 180
 

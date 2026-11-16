@@ -19,7 +19,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from . import config, scanner
+from starlette.concurrency import run_in_threadpool
+
+from . import config, faces, scanner
 from .store import Store
 
 app = FastAPI(title=config.SITE_TITLE, docs_url=None, redoc_url=None)
@@ -668,6 +670,95 @@ def set_prefs(request: Request, body: PrefsBody):
 def get_lang_ep(request: Request):
     """公开界面語言（前端 i18n.js 启动时读取；访客 Cookie 优先）。"""
     return {"lang": _prefs_from_request(request)["lang"]}
+
+
+# ---------- 人脸检索（自拍找人；模型缺失时 503 友好降级） ----------
+
+def _face_scan_context() -> tuple[list[dict], set[str]]:
+    """返回 (全量图片索引条目, 可检索键集合)。
+
+    索引覆盖全部图片（含隐藏与不可见资料夹，避免开关变动就要重建）；
+    可检索集合在检索时排除隐藏照片与不可见资料夹，开关即时生效。
+    """
+    rel = store.get_root()
+    try:
+        gallery_root = resolve_root(rel)
+    except HTTPException:
+        gallery_root = config.FTP_ROOT
+    raw_folders, _ = scanner.scan(gallery_root)
+    hidden = store.get_hidden()
+    visible_folders = store.get_visible_folders()
+    entries: list[dict] = []
+    visible_keys: set[str] = set()
+    for folder in raw_folders:
+        folder_ok = visible_folders is None or folder["name"] in visible_folders
+        for img in folder["images"]:
+            if img["kind"] == "video":
+                continue  # 视频不做人脸索引（1.6G RAM：后端零解码）
+            entries.append({"key": img["key"], "path": img["path"],
+                            "name": img["name"], "size": img["size"], "mtime": img["mtime"]})
+            if folder_ok and img["key"] not in hidden:
+                visible_keys.add(img["key"])
+    return entries, visible_keys
+
+
+@app.get("/api/face/status", dependencies=[Depends(require_login)])
+def face_status():
+    entries, _visible = _face_scan_context()
+    st = faces.index_state()
+    has_models = faces.models_available()
+    return {
+        "models": has_models,
+        "model_loaded": faces.sessions_loaded(),
+        "indexed": faces.indexed_count(),
+        "total_images": len(entries),
+        "pending": faces.pending_count(entries) if has_models else 0,
+        "running": st["running"], "done": st["done"], "todo": st["todo"],
+        "errors": st["errors"], "threshold": config.FACES_MATCH_THRESHOLD,
+    }
+
+
+@app.post("/api/face/index", dependencies=[Depends(require_login)])
+def face_index():
+    """管理端手动触发增量索引（后台节流线程，重复调用安全）。"""
+    if not faces.models_available():
+        raise HTTPException(status_code=503, detail="人脸检索未启用")
+    entries, _visible = _face_scan_context()
+    started = faces.start_index(entries)
+    return {"ok": True, "started": started, "indexed": faces.indexed_count(),
+            "pending": faces.pending_count(entries)}
+
+
+@app.post("/api/face/search")
+async def face_search(request: Request):
+    """自拍找人：请求体＝图片二进制（免 multipart 依赖）；只回可见图片。"""
+    require_view(request)
+    if not faces.models_available():
+        raise HTTPException(status_code=503, detail="人脸检索未启用")
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="请上传自拍照片")
+    if len(data) > config.FACES_MAX_UPLOAD:
+        raise HTTPException(status_code=400, detail="自拍照片过大")
+    entries, visible_keys = _face_scan_context()
+    try:
+        embeddings = await run_in_threadpool(faces.embed_bytes, data)
+    except faces.FaceUnavailable:
+        raise HTTPException(status_code=503, detail="人脸检索未启用") from None
+    except Exception:  # noqa: BLE001  非法图像数据统一提示
+        raise HTTPException(status_code=400, detail="照片无法解析") from None
+    if not embeddings:
+        raise HTTPException(status_code=400, detail="未检测到人脸")
+    matches = await run_in_threadpool(
+        faces.search, embeddings, config.FACES_MATCH_THRESHOLD, visible_keys)
+    # 首次使用自动补建增量索引（后台节流，不打扰本次结果）
+    faces.start_index(entries)
+    by_key = {e["key"]: e for e in entries}
+    results = [{"path": by_key[m["key"]]["path"], "name": by_key[m["key"]]["name"],
+                "sim": round(m["sim"], 3)}
+               for m in matches if m["key"] in by_key]
+    return {"matches": results, "indexed": faces.indexed_count(),
+            "threshold": config.FACES_MATCH_THRESHOLD}
 
 
 @app.get("/api/view/state")

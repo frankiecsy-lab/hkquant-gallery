@@ -37,6 +37,9 @@ const els = {
   pwdConfirm: document.getElementById("pwd-confirm"),
   pwdSubmit: document.getElementById("pwd-submit"),
   pwdMsg: document.getElementById("pwd-msg"),
+  faceStatus: document.getElementById("face-status"),
+  faceRebuild: document.getElementById("face-rebuild"),
+  faceMsg: document.getElementById("face-msg"),
   deleteAllBtn: document.getElementById("delete-all-btn"),
   deleteAllForm: document.getElementById("delete-all-form"),
   deleteAllPw: document.getElementById("delete-all-pw"),
@@ -90,7 +93,7 @@ function showLogin() {
   els.loginCard.hidden = false;
   els.loginPassword.value = "";
   clearMsg(els.loginMsg, els.rootMsg, els.titleMsg, els.storageMsg,
-    els.viewMsg, els.pwdMsg, els.deleteAllMsg, els.logoutMsg);
+    els.viewMsg, els.pwdMsg, els.faceMsg, els.deleteAllMsg, els.logoutMsg);
   els.deleteAllForm.hidden = true;
   els.loginPassword.focus();
 }
@@ -100,6 +103,7 @@ function showPanels(settings) {
   els.panels.hidden = false;
   applySettings(settings);
   loadStorage();
+  loadFaceStatus();
 }
 
 // 查看闸门当前状态（来自 GET／POST /api/settings、/api/settings/view）
@@ -373,6 +377,54 @@ els.deleteAllForm.addEventListener("submit", (e) => {
   });
 });
 
+// ---------- ⑥ 人臉索引 ----------
+
+let lastFace = null;        // 快取 GET /api/face/status，語言切換即時重渲染
+let facePollTimer = null;
+
+function renderFaceStatus() {
+  if (!lastFace) return;
+  if (!lastFace.models) {
+    els.faceStatus.textContent = I18N.t("admin.faceNoModels");
+    els.faceRebuild.disabled = true;
+    return;
+  }
+  els.faceRebuild.disabled = lastFace.running;
+  let text = I18N.t("admin.faceStatus",
+    { indexed: lastFace.indexed, total: lastFace.total_images });
+  if (lastFace.running) {
+    text += " · " + I18N.t("admin.faceRunning", { done: lastFace.done, todo: lastFace.todo });
+  }
+  if (lastFace.errors > 0) text += I18N.t("admin.faceErrors", { n: lastFace.errors });
+  els.faceStatus.textContent = text;
+}
+
+async function loadFaceStatus() {
+  try {
+    const { status, data } = await api("/api/face/status");
+    if (status === 200 && data) {
+      lastFace = data;
+      renderFaceStatus();
+      // 索引進行中：4 秒輪詢直至完成
+      clearTimeout(facePollTimer);
+      if (data.running) facePollTimer = setTimeout(loadFaceStatus, 4000);
+    }
+  } catch (_) { /* 面板保持上一次狀態 */ }
+}
+
+els.faceRebuild.addEventListener("click", () => {
+  withBusy(els.faceRebuild, async () => {
+    const { status, data } = await postJson("/api/face/index", {});
+    if (status === 200 && data && data.ok) {
+      setMsg(els.faceMsg,
+        data.started ? I18N.t("admin.faceStarted") : I18N.t("admin.faceUpToDate"), "ok");
+      loadFaceStatus();
+    } else {
+      setMsg(els.faceMsg, detailOf(data, status), "err");
+    }
+  });
+});
+
 // ---------- ⑦ 登出 ----------
 
 els.logoutBtn.addEventListener("click", () => {
@@ -394,6 +446,7 @@ els.logoutBtn.addEventListener("click", () => {
 document.addEventListener("i18n:lang", () => {
   if (lastSettings) applySettings(lastSettings);
   if (lastStorage) renderStorageText();
+  if (lastFace) renderFaceStatus();
 });
 
 // ---------- 初始化：先取語言，再查 session 決定顯示登入卡或面板 ----------

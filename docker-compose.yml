@@ -12,6 +12,8 @@ services:
     volumes:
       - /srv/ftp:/srv/ftp
       - /opt/hkquant-gallery/data:/data
+      # 人脸模型（只读；缺失时人脸接口 503 友好降级，不影响其他功能）
+      - /opt/hkquant-gallery/models:/models:ro
     networks:
       hkquant-net:
         ipv4_address: 172.18.0.17

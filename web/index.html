@@ -8,18 +8,26 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <!-- 頂欄：標題與設置入口（管理入口在頁腳） -->
+  <!-- 頂欄：標題、人臉搜尋與設置入口（管理入口在頁腳） -->
   <header class="topbar">
     <div class="topbar-text">
       <h1 id="gallery-title">HKQuant Gallery</h1>
     </div>
-    <a class="admin-link" href="/settings" data-i18n="index.settings">設置</a>
+    <div class="topbar-actions">
+      <button type="button" class="face-btn" id="face-btn" data-i18n="index.face">人臉搜尋</button>
+      <a class="admin-link" href="/settings" data-i18n="index.settings">設置</a>
+    </div>
   </header>
 
   <main class="page">
     <!-- 資料夾可見性與排序已遷至「設置」頁全局配置 -->
     <!-- 行內狀態提示：載入中／空圖庫／失敗 -->
     <p id="status" class="status" role="status" data-i18n="index.loading">載入中…</p>
+    <!-- 人臉匹配橫幅：只過濾本頁顯示，不影響全局設置 -->
+    <p id="face-banner" class="face-banner" role="status" hidden>
+      <span id="face-banner-text"></span>
+      <button type="button" id="face-reset" class="face-reset" data-i18n="face.showAll">返回全部</button>
+    </p>
     <div id="gallery" class="gallery" hidden></div>
 
     <!-- 分頁（照片多時） -->
@@ -35,6 +43,20 @@
       <div class="gate-dots" id="gate-dots" aria-hidden="true"></div>
       <p id="gate-msg" class="msg" role="status"></p>
       <div class="pad" id="gate-pad"></div>
+    </div>
+  </div>
+
+  <!-- 人臉搜尋卡：自拍（或揀相）→ POST /api/face/search → 主頁只顯示匹配相片 -->
+  <div id="face-modal" class="gate" hidden aria-modal="true" role="dialog" aria-label="人臉搜尋" data-i18n-aria="face.title">
+    <div class="gate-card face-card">
+      <h2 data-i18n="face.title">人臉搜尋</h2>
+      <p class="face-hint" data-i18n="face.hint">拍攝一張自拍或從相簿選擇，頁面將只顯示包含相同人物的相片。</p>
+      <img id="face-preview" class="face-preview" alt="" hidden>
+      <input type="file" id="face-file" accept="image/*" capture="user" hidden>
+      <button type="button" id="face-pick" class="btn btn-block" data-i18n="face.pick">拍攝／選擇照片</button>
+      <button type="button" id="face-go" class="btn btn-primary btn-block" disabled data-i18n="face.search">開始搜尋</button>
+      <p id="face-msg" class="msg" role="status"></p>
+      <button type="button" id="face-close" class="btn btn-block" data-i18n="face.cancel">取消</button>
     </div>
   </div>
 
