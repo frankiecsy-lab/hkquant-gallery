@@ -526,6 +526,18 @@ a.lb-btn {
 /* 翻頁圓鍵：疊在媒體上貼左右緣（.lb-media 錨定），加大版易撾（用戶要求） */
 .lb-prev { left: 10px; top: 50%; transform: translateY(-50%); width: 66px; height: 66px; font-size: 2.2rem; }
 .lb-next { right: 10px; top: 50%; transform: translateY(-50%); width: 66px; height: 66px; font-size: 2.2rem; }
+/* 箭嘴改用偽元素邊框繪製：文字字模受字體基線影響會偏上（行盒置中≠字模置中，用戶反映），
+   幾何 ‹ › 關於按鈕幾何中心，真正垂直置中；尺寸／粗細隨 font-size 縮放，顏色跟 currentColor */
+.lb-prev::before, .lb-next::before {
+  content: "";
+  width: 0.5em;
+  height: 0.5em;
+  border-top: 0.1em solid currentColor;
+  border-right: 0.1em solid currentColor;
+}
+/* 旋轉後墨跡偏離盒心約 0.35 邊長，水平補償回視覺置中；上下天然對稱 */
+.lb-prev::before { transform: translateX(0.18em) rotate(-135deg); }
+.lb-next::before { transform: translateX(-0.18em) rotate(45deg); }
 
 /* ---------- 管理頁 ---------- */
 .panel {

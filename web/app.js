@@ -601,6 +601,7 @@ function showCurrent() {
     els.lbVideo.pause();
     els.lbVideo.removeAttribute("src");
     els.lbVideo.load();
+    els.lbVideo.hidden = true; // 切換回圖片必須收起播放器（否則 flex 並排顯示錯誤）
     els.lbImg.hidden = false;
     // 漸進顯示：先用已快取的縮圖秒開，1600px 中圖載入完成才換上（原圖只供下載）
     els.lbImg.src = thumbUrl(item.path, item);
@@ -623,7 +624,8 @@ function showCurrent() {
   // 下載按鈕：同檔原圖／原視頻，download 屬性保留原檔名
   els.lbDl.href = mediaUrl(item.path, item);
   els.lbDl.setAttribute("download", item.name || "");
-  els.lbDl.hidden = false;
+  // 全站下載開關（用戶要求）：關閉時放大圖（圖片／視頻）的 ⬇ 一併收起；視頻在線播放不受影響
+  els.lbDl.hidden = !downloadsEnabled;
   const when = String(item.captured || item.mtime || "").replace("T", " ").slice(0, 16);
   els.lbIndex.textContent = (when ? when + " · " : "")
     + (item.kind === "video" ? I18N.t("index.videoWord") + " · " : "")
