@@ -63,6 +63,9 @@
   <!-- 全螢幕預覽（lightbox）：圖片時左半＝上一張、右半＝下一張；視頻用原生控件播放 -->
   <div id="lightbox" class="lightbox" hidden aria-modal="true" role="dialog" aria-label="圖片預覽" data-i18n-aria="index.lightboxAria">
     <button type="button" class="lb-btn lb-close" id="lb-close" aria-label="關閉">&times;</button>
+    <!-- 視頻專用翻頁掣（圖片用左右半區點擊；視頻點擊留給原生控件故補掣） -->
+    <button type="button" class="lb-btn lb-prev" id="lb-prev" aria-label="上一張" title="上一張" data-i18n-aria="index.prevItem" hidden>&#8249;</button>
+    <button type="button" class="lb-btn lb-next" id="lb-next" aria-label="下一張" title="下一張" data-i18n-aria="index.nextItem" hidden>&#8250;</button>
     <a id="lb-download" class="lb-btn lb-download" href="#" download aria-label="下載" title="下載" data-i18n-aria="index.download" hidden>&#11015;</a>
     <figure class="lb-figure">
       <img id="lb-img" alt="" class="lb-half-nav">

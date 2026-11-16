@@ -282,8 +282,13 @@ html, body {
   pointer-events: none;
 }
 
-/* 管理端卡片操作按鈕（右上角） */
-/* 管理模式操作列：疊於圖片底部，兩鍵平分寬度、透明底 */
+/* 媒體容器：圖片／視頻瓦片的定位基準（figcaption 在其下方，屬正常文流） */
+.card-media {
+  position: relative;
+}
+
+/* 管理模式操作列：疊於圖片底部（錨定 .card-media，與日期／檔名零重疊），
+   兩鍵平分寬度、透明底 */
 .card-actions {
   position: absolute;
   left: 0;

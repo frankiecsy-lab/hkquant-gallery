@@ -1,6 +1,11 @@
 # Changelog — hkquant-gallery
 
 ## v1.5.0（2026-11-16）
+- **修復管理模式按鈕與日期／檔名重疊**：`.card-actions` 原本錨定卡片底部，開啟縮略圖資訊
+  （日期／檔名）時按鈕疊在 figcaption 上；改為圖片／視頻瓦片外包 `.card-media` 定位層，
+  按鈕恆疊於圖片底部，figcaption 照常排在圖下
+- **視頻 lightbox 翻頁**：視頻時兩側顯示 ‹ › 圓形翻頁掣（點擊留給原生控件，故補掣）；
+  圖片保持左右半區點擊翻頁不顯示此兩鍵；橫滑／鍵盤 ←→ 對視頻同樣有效
 - **人臉搜尋（自拍找人）**：buffalo_sc 模型（SCRFD-500M 640×640 偵測＋w600k_mbf 512 維識別，
   合共 ~16MB），純 onnxruntime＋numpy＋Pillow（無 OpenCV／insightface 依賴樹）；
   新增 `app/faces.py`：模型惰性載入＋單飛鎖＋閒置自動卸載（看門狗預設 300 秒，回收約 200MB）、

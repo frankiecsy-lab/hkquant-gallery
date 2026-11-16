@@ -18,6 +18,8 @@ const els = {
   lbIndex: document.getElementById("lb-index"),
   lbClose: document.getElementById("lb-close"),
   lbDl: document.getElementById("lb-download"),
+  lbPrev: document.getElementById("lb-prev"),
+  lbNext: document.getElementById("lb-next"),
   gate: document.getElementById("gate"),
   gateDots: document.getElementById("gate-dots"),
   gateMsg: document.getElementById("gate-msg"),
@@ -208,6 +210,10 @@ function renderCard(img, flatIndex) {
   card.className = "card" + (img.hidden ? " dim" : "") + (img.kind === "video" ? " card-video" : "");
   card.title = img.name || img.path;
 
+  // 媒體容器：操作按鈕錨定於此，永遠疊在圖片底部，不與下方 figcaption 重疊
+  const media = document.createElement("div");
+  media.className = "card-media";
+
   if (img.kind === "video") {
     // 視頻卡：黑底播放瓦片＋瀏覽器端抽取的第一格海報（服務端不解碼視頻），
     // 瀏覽器無法解碼的格式自動保留 ▶ 瓦片；點擊開啟內嵌播放器
@@ -224,7 +230,7 @@ function renderCard(img, flatIndex) {
     icon.className = "video-icon";
     icon.textContent = "▶";
     tile.appendChild(icon);
-    card.appendChild(tile);
+    media.appendChild(tile);
     queuePoster(renderSeq, tile, img);
   } else {
     const el = document.createElement("img");
@@ -236,8 +242,9 @@ function renderCard(img, flatIndex) {
     el.addEventListener("error", () => {
       if (!el.dataset.fallback) { el.dataset.fallback = "1"; el.src = mediaUrl(img.path); }
     }, { once: true });
-    card.appendChild(el);
+    media.appendChild(el);
   }
+  card.appendChild(media);
 
   if (img.hidden) {
     const tag = document.createElement("span");
@@ -301,7 +308,7 @@ function renderCard(img, flatIndex) {
       deletePhoto(img, card);
     });
     actions.appendChild(delBtn);
-    card.appendChild(actions);
+    media.appendChild(actions);
   }
 
   card.addEventListener("click", () => openLightbox(flatIndex));
@@ -448,6 +455,8 @@ function closeLightbox() {
   els.lbVideo.hidden = true;
   els.lbImg.hidden = false;
   els.lbDl.hidden = true;
+  els.lbPrev.hidden = true;
+  els.lbNext.hidden = true;
   document.body.style.overflow = "";
   current = -1;
 }
@@ -455,8 +464,9 @@ function closeLightbox() {
 function showCurrent() {
   const item = pageItems[current];
   if (!item) return;
-  if (item.kind === "video") {
-    // 視頻：用原生 <video controls> 播放原檔；點擊不翻頁（留給控件）
+  const isVideo = item.kind === "video";
+  if (isVideo) {
+    // 視頻：用原生 <video controls> 播放原檔；點擊留給控件，翻頁改兩側按鈕／橫滑／鍵盤
     els.lbImg.hidden = true;
     els.lbImg.removeAttribute("src");
     els.lbVideo.hidden = false;
@@ -470,6 +480,8 @@ function showCurrent() {
     els.lbImg.src = mediaUrl(item.path); // 大圖直接載入原圖
     els.lbImg.alt = item.name || "";
   }
+  els.lbPrev.hidden = !isVideo; // 翻頁掣僅視頻時顯示（圖片用半區點擊）
+  els.lbNext.hidden = !isVideo;
   els.lbName.textContent = item.name || item.path;
   // 下載按鈕：同檔原圖／原視頻，download 屬性保留原檔名
   els.lbDl.href = mediaUrl(item.path);
@@ -501,6 +513,10 @@ els.lightbox.addEventListener("click", (e) => {
 });
 
 els.lbClose.addEventListener("click", closeLightbox);
+
+// 視頻翻頁掣（圖片模式保持半區點擊，不顯示此兩鍵）
+els.lbPrev.addEventListener("click", (e) => { e.stopPropagation(); step(-1); });
+els.lbNext.addEventListener("click", (e) => { e.stopPropagation(); step(1); });
 
 // 圖片時左右半區翻頁：左 50%＝上一張、右 50%＝下一張（視頻時不攔截，留給播放控件）
 els.lbImg.addEventListener("click", (e) => {
